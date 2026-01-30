@@ -1,0 +1,35 @@
+# LangChain Core
+langchain
+langchain-openai
+langchain-community
+langchain-google-genai
+langchain-groq
+langchain-core
+langchain-text-splitters
+langchain-chroma
+langchain-huggingface
+
+# Embeddings & Vector DB
+sentence-transformers
+faiss-cpu
+chromadb
+
+# PDF Processing
+pypdf
+pymupdf
+
+# FastAPI Backend
+fastapi
+uvicorn[standard]
+python-multipart
+aiofiles
+httpx
+
+# Utilities
+python-dotenv
+pydantic
+ipykernel
+
+# Future Cloud DB Support (optional)
+# pinecone-client
+# qdrant-client
