@@ -276,10 +276,30 @@ class SupportAgentService:
             self._sessions[session_id].update(state)
             self._sessions[session_id]["status"] = state.get("status", HealingStatus.AWAITING_APPROVAL)
             
-            # Check if approval is required
-            if state.get("requires_human_approval"):
+            # Track special flags for dashboard
+            self._sessions[session_id]["is_emergency"] = state.get("is_emergency", False)
+            self._sessions[session_id]["abnormal_pattern"] = state.get("abnormal_pattern", False)
+            self._sessions[session_id]["volume_spike"] = state.get("volume_spike", False)
+            self._sessions[session_id]["is_autofix"] = state.get("is_autofix", False)
+            
+            # Check if this is an auto-fix case (no approval required)
+            if state.get("is_autofix") and not state.get("requires_human_approval"):
+                # AUTO-FIX: Execute immediately without human approval
+                self._sessions[session_id]["status"] = HealingStatus.COMPLETED
+                self._sessions[session_id]["auto_fixed_at"] = datetime.now()
+                self._metrics["auto_resolved"] += 1
+                
+                # Log the auto-fix
+                print(f"[AUTO-FIX] Session {session_id} resolved automatically (confidence: {state.get('diagnosis', {}).confidence if hasattr(state.get('diagnosis', {}), 'confidence') else 'N/A'})")
+            
+            # Check if approval is required (emergency, abnormal, or standard)
+            elif state.get("requires_human_approval"):
                 self._add_to_approval_queue(session_id, state)
                 self._metrics["human_escalated"] += 1
+                
+                # Special handling for emergencies
+                if state.get("is_emergency"):
+                    print(f"[🚨 EMERGENCY] Session {session_id} flagged for urgent engineering review!")
             else:
                 self._metrics["auto_resolved"] += 1
                 
@@ -357,7 +377,13 @@ class SupportAgentService:
                 "confidence": state["diagnosis"].confidence
             } if state.get("diagnosis") else None,
             "risk": state["risk_assessment"].risk_level.value if state.get("risk_assessment") else None,
-            "explanation": state.get("explanation", "")
+            "explanation": state.get("explanation", ""),
+            # New flags for dashboard alerts
+            "is_emergency": state.get("is_emergency", False),
+            "abnormal_pattern": state.get("abnormal_pattern", False),
+            "volume_spike": state.get("volume_spike", False),
+            "is_autofix": state.get("is_autofix", False),
+            "spike_count": state.get("spike_count", 0)
         }
     
     def get_metrics(self) -> Dict[str, Any]:

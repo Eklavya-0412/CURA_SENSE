@@ -128,53 +128,80 @@ export default function AgentDashboard() {
                                             <p className="text-xs mt-2">Run the ingestion script to load tickets.</p>
                                         </div>
                                     ) : (
-                                        history.map((session) => (
-                                            <div
-                                                key={session.session_id || session.id}
-                                                onClick={() => setActiveResult(session)}
-                                                className={`p-4 cursor-pointer transition hover:bg-indigo-50 
+                                        history.map((session) => {
+                                            // Check for emergency/abnormal patterns
+                                            const isEmergency = session.is_emergency || session.abnormal_pattern || session.volume_spike;
+                                            const isAutoFixed = session.is_autofix && session.status === 'completed';
+
+                                            return (
+                                                <div
+                                                    key={session.session_id || session.id}
+                                                    onClick={() => setActiveResult(session)}
+                                                    className={`p-4 cursor-pointer transition hover:bg-indigo-50 
                                                     ${activeResult?.session_id === session.session_id || activeResult?.id === session.id
-                                                        ? 'bg-indigo-50 border-l-4 border-indigo-500'
-                                                        : ''}`}
-                                            >
-                                                <div className="flex justify-between items-start mb-1">
-                                                    <span className="text-sm font-bold text-gray-900 truncate max-w-[180px]">
-                                                        {session.diagnosis?.root_cause?.replace(/_/g, ' ').toUpperCase() || "Analyzing..."}
-                                                    </span>
-                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase 
+                                                            ? 'bg-indigo-50 border-l-4 border-indigo-500'
+                                                            : ''}
+                                                    ${isEmergency ? 'animate-pulse-border bg-red-50/50' : ''}
+                                                    ${isAutoFixed ? 'bg-green-50/30' : ''}`}
+                                                    style={isEmergency ? {
+                                                        animation: 'pulse-border 2s ease-in-out infinite',
+                                                        boxShadow: '0 0 0 2px rgba(239, 68, 68, 0.5)'
+                                                    } : {}}
+                                                >
+                                                    {/* Emergency Badge */}
+                                                    {isEmergency && (
+                                                        <div className="mb-2 flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-100 px-2 py-1 rounded-full w-fit animate-pulse">
+                                                            🚨 {session.volume_spike ? `SPIKE (${session.spike_count || '50+'}+ tickets)` : 'ABNORMAL PATTERN'}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Auto-Fix Badge */}
+                                                    {isAutoFixed && (
+                                                        <div className="mb-2 flex items-center gap-1 text-[10px] font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full w-fit">
+                                                            ✅ AUTO-FIXED
+                                                        </div>
+                                                    )}
+
+                                                    <div className="flex justify-between items-start mb-1">
+                                                        <span className="text-sm font-bold text-gray-900 truncate max-w-[180px]">
+                                                            {session.diagnosis?.root_cause?.replace(/_/g, ' ').toUpperCase() || "Analyzing..."}
+                                                        </span>
+                                                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase 
                                                         ${session.risk === 'high' || session.risk === 'critical'
-                                                            ? 'bg-red-100 text-red-600'
-                                                            : session.risk === 'medium'
-                                                                ? 'bg-yellow-100 text-yellow-600'
-                                                                : 'bg-gray-100 text-gray-600'}`}
-                                                    >
-                                                        {session.risk || 'Low'}
-                                                    </span>
-                                                </div>
-                                                <p className="text-xs text-gray-500 line-clamp-2">
-                                                    {session.explanation?.substring(0, 80) || "Processing..."}...
-                                                </p>
-                                                <div className="mt-2 flex items-center justify-between text-[10px] text-gray-400">
-                                                    <span className="font-mono">
-                                                        {(session.session_id || session.id)?.substring(0, 8)}
-                                                    </span>
-                                                    <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full
-                                                        ${session.status === 'dispatched' ? 'bg-green-100 text-green-600' :
-                                                            session.status === 'awaiting_approval' ? 'bg-orange-100 text-orange-600' :
-                                                                'bg-blue-100 text-blue-600'}`}
-                                                    >
-                                                        <Clock className="w-3 h-3" />
-                                                        {session.status?.replace(/_/g, ' ')}
-                                                    </span>
-                                                </div>
-                                                {session.requires_approval && session.status !== 'dispatched' && (
-                                                    <div className="mt-2 text-[10px] text-orange-600 flex items-center gap-1">
-                                                        <AlertTriangle className="w-3 h-3" />
-                                                        Requires human approval
+                                                                ? 'bg-red-100 text-red-600'
+                                                                : session.risk === 'medium'
+                                                                    ? 'bg-yellow-100 text-yellow-600'
+                                                                    : 'bg-gray-100 text-gray-600'}`}
+                                                        >
+                                                            {session.risk || 'Low'}
+                                                        </span>
                                                     </div>
-                                                )}
-                                            </div>
-                                        ))
+                                                    <p className="text-xs text-gray-500 line-clamp-2">
+                                                        {session.explanation?.substring(0, 80) || "Processing..."}...
+                                                    </p>
+                                                    <div className="mt-2 flex items-center justify-between text-[10px] text-gray-400">
+                                                        <span className="font-mono">
+                                                            {(session.session_id || session.id)?.substring(0, 8)}
+                                                        </span>
+                                                        <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full
+                                                        ${session.status === 'dispatched' ? 'bg-green-100 text-green-600' :
+                                                                session.status === 'completed' ? 'bg-green-100 text-green-600' :
+                                                                    session.status === 'awaiting_approval' ? 'bg-orange-100 text-orange-600' :
+                                                                        'bg-blue-100 text-blue-600'}`}
+                                                        >
+                                                            <Clock className="w-3 h-3" />
+                                                            {session.status?.replace(/_/g, ' ')}
+                                                        </span>
+                                                    </div>
+                                                    {session.requires_approval && session.status !== 'dispatched' && session.status !== 'completed' && (
+                                                        <div className={`mt-2 text-[10px] flex items-center gap-1 ${isEmergency ? 'text-red-600 font-bold' : 'text-orange-600'}`}>
+                                                            <AlertTriangle className="w-3 h-3" />
+                                                            {isEmergency ? '🚨 URGENT: Engineering escalation required' : 'Requires human approval'}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )
+                                        })
                                     )}
                                 </div>
                             </div>

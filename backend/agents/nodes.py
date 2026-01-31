@@ -108,54 +108,98 @@ def _map_priority_to_severity(priority: str) -> IssueSeverity:
 
 def cluster_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    STEP 2 — CLUSTER & PATTERN CHECK
+    STEP 2 — CLUSTER & ABNORMAL PATTERN DETECTION
     
-    Determine:
-    - Are multiple merchants affected?
-    - Are errors occurring at the same migration stage?
-    - Are error messages semantically similar?
+    Detects:
+    - Systemic issues (multiple merchants affected)
+    - Volume spikes (50+ tickets for same issue)
+    - Abnormal patterns (post-migration + API/webhook failures)
     
-    If yes, treat as systemic issue.
-    Creates descriptive cluster names for the dashboard UI.
+    If spike detected, flags for immediate engineering escalation.
     """
     issues = state.get("observed_issues", [])
     tickets = state.get("tickets", [])
     
-    # Helper to extract cluster name from context
-    def get_cluster_name(issue, ticket_idx=0):
-        # Try to get subject from context (set in observe_node)
+    if not issues:
+        return {
+            **state, 
+            "clusters": [],
+            "is_systemic": False,
+            "volume_spike": False,
+            "abnormal_pattern": False,
+            "status": HealingStatus.SEARCHING
+        }
+    
+    # ========== 1. Detect Volume Spikes (50+ tickets for one problem) ==========
+    issue_counts = {}
+    for issue in issues:
+        # Group by first part of error message (simplified clustering)
+        msg_key = issue.error_message.split(":")[0].strip().lower()[:50]
+        issue_counts[msg_key] = issue_counts.get(msg_key, 0) + 1
+    
+    # Check if ANY problem has spiked beyond threshold
+    SPIKE_THRESHOLD = 50
+    volume_spike = any(count >= SPIKE_THRESHOLD for count in issue_counts.values())
+    spike_count = max(issue_counts.values()) if issue_counts else 0
+    
+    # ========== 2. Detect Abnormal Patterns ==========
+    # Pattern: Post-migration + API/Webhook failures = Abnormal
+    abnormal_keywords = ["webhook", "api", "timeout", "503", "502", "gateway", "connection refused"]
+    all_text = " ".join([i.error_message.lower() for i in issues])
+    has_critical_errors = any(kw in all_text for kw in abnormal_keywords)
+    
+    # Check for post-migration stage
+    is_post_migration = any(
+        i.migration_stage == MigrationStage.POST_MIGRATION 
+        for i in issues
+    )
+    
+    abnormal_pattern = is_post_migration and has_critical_errors
+    
+    # ========== 3. Identify Affected Merchants & Stages ==========
+    merchants = list(set(i.merchant_id for i in issues if i.merchant_id))
+    stages = list(set(i.migration_stage.value for i in issues))
+    
+    # ========== 4. Helper for cluster names ==========
+    def get_cluster_name(issue):
         subject = issue.context.get("subject", "")
         category = issue.context.get("category", "")
+        metadata = issue.context.get("metadata", {})
         
         if subject:
             return subject
         elif category:
             return f"{category.title()} Issue"
+        elif metadata and metadata.get("category"):
+            return f"{metadata.get('category').title()} Issue"
         else:
-            # Fallback: Use first part of error message
             return issue.error_message[:50] if issue.error_message else "General Migration Issue"
     
+    # ========== 5. Create Clusters ==========
     if len(issues) <= 1:
-        # Single issue, no clustering needed
+        # Single issue
         cluster_name = get_cluster_name(issues[0]) if issues else "No Issues"
         
         cluster = IssueCluster(
             cluster_id=str(uuid.uuid4()),
             issues=issues,
             representative_text=cluster_name,
-            migration_stages=[issues[0].migration_stage.value] if issues else [],
-            affected_merchants=[issues[0].merchant_id] if issues and issues[0].merchant_id else [],
+            migration_stages=stages,
+            affected_merchants=merchants,
             is_systemic=False,
             similarity_score=1.0
         )
+        
         return {
             **state,
             "clusters": [cluster],
             "is_systemic": False,
+            "volume_spike": False,
+            "abnormal_pattern": abnormal_pattern,
             "status": HealingStatus.SEARCHING
         }
     
-    # Get embeddings for clustering
+    # Get embeddings for semantic clustering
     embedding_service = EmbeddingService()
     texts = [i.error_message for i in issues]
     embeddings = embedding_service.embed_documents(texts)
@@ -182,33 +226,44 @@ def cluster_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 used_indices.add(j)
         
         # Create cluster with descriptive name
-        merchants = list(set(i.merchant_id for i in cluster_issues if i.merchant_id))
-        stages = list(set(i.migration_stage.value for i in cluster_issues))
+        cluster_merchants = list(set(i.merchant_id for i in cluster_issues if i.merchant_id))
+        cluster_stages = list(set(i.migration_stage.value for i in cluster_issues))
         
-        # Get cluster name from the first issue
         cluster_name = get_cluster_name(cluster_issues[0])
         if len(cluster_issues) > 1:
             category = cluster_issues[0].context.get("category", "issues")
+            if category == "issues":
+                category = cluster_issues[0].context.get("metadata", {}).get("category", "issues")
             cluster_name = f"{category.title()} ({len(cluster_issues)} tickets)"
+        
+        # A cluster is systemic if: volume spike OR multiple merchants OR many tickets
+        cluster_is_systemic = (
+            volume_spike or 
+            len(cluster_merchants) > 1 or 
+            len(cluster_issues) > 2
+        )
         
         cluster = IssueCluster(
             cluster_id=str(uuid.uuid4()),
             issues=cluster_issues,
             representative_text=cluster_name,
-            migration_stages=stages,
-            affected_merchants=merchants,
-            is_systemic=len(cluster_issues) > 2 or len(merchants) > 1,
-            similarity_score=0.7
+            migration_stages=cluster_stages,
+            affected_merchants=cluster_merchants,
+            is_systemic=cluster_is_systemic,
+            similarity_score=0.9 if volume_spike else 0.7
         )
         clusters.append(cluster)
     
-    # Check if any cluster is systemic
-    is_systemic = any(c.is_systemic for c in clusters)
+    # Final systemic check
+    is_systemic = any(c.is_systemic for c in clusters) or volume_spike or len(merchants) > 1
     
     return {
         **state,
         "clusters": clusters,
         "is_systemic": is_systemic,
+        "volume_spike": volume_spike,
+        "spike_count": spike_count,
+        "abnormal_pattern": abnormal_pattern,
         "status": HealingStatus.SEARCHING
     }
 
@@ -491,20 +546,27 @@ def assess_risk_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 def decide_action_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    STEP 6 — DECIDE ACTION
+    STEP 6 — DECIDE ACTION (Auto-Fix vs Human Approval)
+    
+    Decision Rules:
+    1. VOLUME SPIKE (50+): Immediate Engineering Escalation (requires approval)
+    2. ABNORMAL PATTERN: Flag for urgent review
+    3. AUTO-FIX eligible: Low risk + High confidence + No checkout impact
+    4. DEFAULT: Human approval required
     
     Choose ONE recommended action:
-    - Provide merchant setup instructions
-    - Draft a support response
-    - Draft an escalation to engineering
-    - Request human review due to uncertainty
-    
-    Rule: IF risk == high OR confidence < 0.85 → human approval required
+    - Provide merchant setup instructions (can auto-fix)
+    - Draft a support response (needs approval)
+    - Draft an escalation to engineering (always needs approval)
+    - Request human review due to uncertainty (always needs approval)
     """
     diagnosis = state.get("diagnosis")
     risk_assessment = state.get("risk_assessment")
+    volume_spike = state.get("volume_spike", False)
+    abnormal_pattern = state.get("abnormal_pattern", False)
+    spike_count = state.get("spike_count", 0)
     
-    if not diagnosis:
+    if not diagnosis or not risk_assessment:
         return {
             **state,
             "action_type": ActionType.REQUEST_HUMAN_REVIEW,
@@ -512,12 +574,59 @@ def decide_action_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "status": HealingStatus.AWAITING_APPROVAL
         }
     
-    # Determine if human approval required
-    requires_approval = (
-        risk_assessment and risk_assessment.risk_level == RiskLevel.HIGH
-    ) or diagnosis.confidence < 0.85
+    # ========== RULE 1: Volume Spike (50+) → Engineering Escalation ==========
+    if volume_spike:
+        return {
+            **state,
+            "action_type": ActionType.ESCALATE_TO_ENGINEERING,
+            "requires_human_approval": True,  # Still requires approval for Eng escalation
+            "explanation": f"🚨 CRITICAL: Detected high-volume spike ({spike_count}+ tickets). Auto-escalating to Engineering.",
+            "status": HealingStatus.AWAITING_APPROVAL,
+            "is_emergency": True
+        }
     
-    # Choose action based on root cause
+    # ========== RULE 2: Abnormal Pattern → Urgent Review ==========
+    if abnormal_pattern:
+        return {
+            **state,
+            "action_type": ActionType.ESCALATE_TO_ENGINEERING,
+            "requires_human_approval": True,
+            "explanation": "⚠️ ABNORMAL PATTERN: Post-migration API/Webhook failures detected. Requires urgent engineering review.",
+            "status": HealingStatus.AWAITING_APPROVAL,
+            "is_emergency": True
+        }
+    
+    # ========== RULE 3: Auto-Fix Eligibility ==========
+    # Low Risk + High Confidence + No Checkout Impact = Can Auto-Fix
+    is_autofix_eligible = (
+        risk_assessment.risk_level == RiskLevel.LOW and
+        diagnosis.confidence >= 0.85 and
+        not risk_assessment.affects_checkout and
+        not risk_assessment.affects_revenue
+    )
+    
+    if is_autofix_eligible:
+        # Determine auto-fix action based on root cause
+        root_cause = diagnosis.root_cause
+        
+        if root_cause == RootCause.MERCHANT_MISCONFIGURATION:
+            action_type = ActionType.PROVIDE_SETUP_INSTRUCTIONS
+        elif root_cause == RootCause.DOCUMENTATION_GAP:
+            action_type = ActionType.DRAFT_SUPPORT_RESPONSE
+        else:
+            action_type = ActionType.DRAFT_SUPPORT_RESPONSE
+        
+        return {
+            **state,
+            "action_type": action_type,
+            "requires_human_approval": False,  # TRUE AUTO-FIX: No human needed
+            "explanation": f"✅ AUTO-FIX ELIGIBLE: Low risk, {diagnosis.confidence:.0%} confidence, no checkout/revenue impact.",
+            "status": HealingStatus.ACTING,
+            "is_autofix": True
+        }
+    
+    # ========== RULE 4: Default - Human Approval Required ==========
+    # Choose action based on root cause, but require approval
     root_cause = diagnosis.root_cause
     
     if root_cause == RootCause.MERCHANT_MISCONFIGURATION:
@@ -526,18 +635,27 @@ def decide_action_node(state: Dict[str, Any]) -> Dict[str, Any]:
         action_type = ActionType.DRAFT_SUPPORT_RESPONSE
     elif root_cause == RootCause.PLATFORM_REGRESSION:
         action_type = ActionType.ESCALATE_TO_ENGINEERING
-        requires_approval = True  # Always require approval for escalations
     else:
         action_type = ActionType.REQUEST_HUMAN_REVIEW
-        requires_approval = True
     
-    new_status = HealingStatus.AWAITING_APPROVAL if requires_approval else HealingStatus.ACTING
+    # Determine why approval is needed
+    approval_reasons = []
+    if risk_assessment.risk_level == RiskLevel.HIGH:
+        approval_reasons.append("High risk")
+    if diagnosis.confidence < 0.85:
+        approval_reasons.append(f"Low confidence ({diagnosis.confidence:.0%})")
+    if risk_assessment.affects_checkout:
+        approval_reasons.append("Affects checkout")
+    if risk_assessment.affects_revenue:
+        approval_reasons.append("Affects revenue")
     
     return {
         **state,
         "action_type": action_type,
-        "requires_human_approval": requires_approval,
-        "status": new_status
+        "requires_human_approval": True,
+        "approval_reason": "; ".join(approval_reasons) if approval_reasons else "Standard review required",
+        "status": HealingStatus.AWAITING_APPROVAL,
+        "is_autofix": False
     }
 
 

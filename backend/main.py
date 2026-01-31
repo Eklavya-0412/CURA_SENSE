@@ -7,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import API_HOST, API_PORT
 from routes import chat_router, documents_router
 from routes.agent import router as agent_router
+from routes.webhooks import router as webhook_router
+from routes.monitor import router as monitor_router
 from models.schemas import HealthResponse
 
 # Create FastAPI app
@@ -19,7 +21,7 @@ app = FastAPI(
 # Configure CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],  # Vite default port
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://localhost:3001", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -29,6 +31,8 @@ app.add_middleware(
 app.include_router(chat_router)
 app.include_router(documents_router)
 app.include_router(agent_router)  # MigraGuard Support Agent routes
+app.include_router(webhook_router)  # Automatic error ingestion webhooks
+app.include_router(monitor_router)  # Live monitoring API with API key auth
 
 
 @app.get("/", response_model=HealthResponse)

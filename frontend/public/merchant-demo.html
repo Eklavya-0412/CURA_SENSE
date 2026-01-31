@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Merchant Store Demo - MigraGuard Monitored</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 16px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+
+        .section {
+            background: white;
+            padding: 24px;
+            border-radius: 16px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .section h2 {
+            color: #333;
+            margin-bottom: 16px;
+            font-size: 18px;
+        }
+
+        .btn-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-error {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-error:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+        }
+
+        .btn-checkout {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .btn-checkout:hover {
+            background: #d97706;
+            transform: translateY(-2px);
+        }
+
+        .btn-api {
+            background: #6366f1;
+            color: white;
+        }
+
+        .btn-api:hover {
+            background: #4f46e5;
+            transform: translateY(-2px);
+        }
+
+        .btn-webhook {
+            background: #8b5cf6;
+            color: white;
+        }
+
+        .btn-webhook:hover {
+            background: #7c3aed;
+            transform: translateY(-2px);
+        }
+
+        .log {
+            background: #1e293b;
+            color: #94a3b8;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 16px;
+        }
+
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid #334155;
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .log-success {
+            color: #4ade80;
+        }
+
+        .log-error {
+            color: #f87171;
+        }
+
+        .log-info {
+            color: #60a5fa;
+        }
+
+        .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+        }
+
+        .highlight {
+            color: #fbbf24;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛒 Merchant Store Demo</h1>
+            <p>This simulates a merchant website with MigraGuard SDK integrated</p>
+            <div class="badge">✓ MigraGuard Monitoring Active</div>
+        </div>
+
+        <div class="section">
+            <h2>🔧 SDK Integration Code</h2>
+            <div class="code-block">
+                <pre>&lt;script src="<span class="highlight">http://localhost:8000/webhook/sdk.js</span>"&gt;&lt;/script&gt;
+&lt;script&gt;
+  MigraGuard.init({
+    merchantId: '<span class="highlight">MCH-DEMO-001</span>',
+    apiEndpoint: 'http://localhost:8000'
+  });
+&lt;/script&gt;</pre>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>⚡ Simulate Errors (Auto-Tickets)</h2>
+            <p style="color: #666; margin-bottom: 16px; font-size: 14px;">
+                Click buttons below to simulate real-world errors. These will auto-generate tickets in MigraGuard.
+            </p>
+            <div class="btn-group">
+                <button class="btn-error" onclick="simulateJSError()">
+                    🐛 Trigger JS Error
+                </button>
+                <button class="btn-checkout" onclick="simulateCheckoutFailure()">
+                    💳 Checkout Failure
+                </button>
+                <button class="btn-api" onclick="simulateAPIError()">
+                    🔌 API 503 Error
+                </button>
+                <button class="btn-webhook" onclick="simulateWebhookFailure()">
+                    📡 Webhook Failed
+                </button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📋 Event Log</h2>
+            <div class="log" id="log">
+                <div class="log-entry log-info">[System] MigraGuard SDK loaded</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load MigraGuard SDK -->
+    <script>
+        const API_URL = 'http://localhost:8000';
+        const MERCHANT_ID = 'MCH-DEMO-001';
+
+        // Simple inline SDK (in production, load from /webhook/sdk.js)
+        const MigraGuard = {
+            merchantId: MERCHANT_ID,
+            apiEndpoint: API_URL,
+
+            captureError: function (errorData) {
+                const payload = {
+                    merchant_id: this.merchantId,
+                    ...errorData,
+                    user_agent: navigator.userAgent,
+                    url: window.location.href,
+                    timestamp: new Date().toISOString()
+                };
+
+                return fetch(this.apiEndpoint + '/webhook/error', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                }).then(r => r.json());
+            },
+
+            captureCheckoutFailure: function (data) {
+                return fetch(this.apiEndpoint + '/webhook/checkout-failure', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        merchant_id: this.merchantId,
+                        ...data,
+                        timestamp: new Date().toISOString()
+                    })
+                }).then(r => r.json());
+            },
+
+            captureAPIFailure: function (data) {
+                return fetch(this.apiEndpoint + '/webhook/api-failure', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        merchant_id: this.merchantId,
+                        ...data,
+                        timestamp: new Date().toISOString()
+                    })
+                }).then(r => r.json());
+            },
+
+            captureWebhookFailure: function (data) {
+                return fetch(this.apiEndpoint + '/webhook/webhook-failure', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        merchant_id: this.merchantId,
+                        ...data,
+                        timestamp: new Date().toISOString()
+                    })
+                }).then(r => r.json());
+            }
+        };
+
+        function log(message, type = 'info') {
+            const logEl = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        async function simulateJSError() {
+            log('Simulating JavaScript error...', 'error');
+
+            try {
+                const result = await MigraGuard.captureError({
+                    error_type: 'javascript',
+                    error_message: 'TypeError: Cannot read property "price" of undefined',
+                    error_code: 'JS_TYPE_ERROR',
+                    stack_trace: 'at ProductPage.render (product.js:45:12)\n  at App.js:102:8',
+                    context: { page: 'product-detail', action: 'add-to-cart' }
+                });
+
+                log(`✓ Ticket created: ${result.ticket_id} | Session: ${result.session_id}`, 'success');
+            } catch (err) {
+                log(`Failed to report error: ${err.message}`, 'error');
+            }
+        }
+
+        async function simulateCheckoutFailure() {
+            log('Simulating checkout failure...', 'error');
+
+            try {
+                const result = await MigraGuard.captureCheckoutFailure({
+                    order_id: 'ORD-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
+                    error_message: 'Payment gateway timeout: Stripe API did not respond',
+                    error_code: 'PAYMENT_TIMEOUT',
+                    payment_method: 'credit_card',
+                    cart_value: 149.99,
+                    currency: 'USD'
+                });
+
+                log(`✓ CRITICAL Ticket created: ${result.ticket_id} | Session: ${result.session_id}`, 'success');
+            } catch (err) {
+                log(`Failed to report checkout failure: ${err.message}`, 'error');
+            }
+        }
+
+        async function simulateAPIError() {
+            log('Simulating API 503 error...', 'error');
+
+            try {
+                const result = await MigraGuard.captureAPIFailure({
+                    endpoint: '/api/v2/products/sync',
+                    method: 'POST',
+                    status_code: 503,
+                    error_message: 'Service Unavailable: Database connection pool exhausted',
+                    request_id: 'req_' + Math.random().toString(36).substring(2, 10),
+                    latency_ms: 30000
+                });
+
+                log(`✓ Ticket created: ${result.ticket_id} | Session: ${result.session_id}`, 'success');
+            } catch (err) {
+                log(`Failed to report API error: ${err.message}`, 'error');
+            }
+        }
+
+        async function simulateWebhookFailure() {
+            log('Simulating webhook delivery failure...', 'error');
+
+            try {
+                const result = await MigraGuard.captureWebhookFailure({
+                    webhook_url: 'https://mystore.com/webhooks/orders',
+                    event_type: 'order.created',
+                    error_message: 'Connection refused: ECONNREFUSED',
+                    status_code: 0,
+                    retry_count: 3
+                });
+
+                log(`✓ Ticket created: ${result.ticket_id} | Session: ${result.session_id}`, 'success');
+            } catch (err) {
+                log(`Failed to report webhook failure: ${err.message}`, 'error');
+            }
+        }
+
+        // Log SDK initialization
+        log('MigraGuard SDK initialized for merchant: ' + MERCHANT_ID, 'success');
+    </script>
+</body>
+
+</html>

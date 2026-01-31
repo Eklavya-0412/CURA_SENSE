@@ -82,3 +82,25 @@ body {
 .fade-in {
   animation: fade-in 0.3s ease-out;
 }
+
+/* Emergency Pulse Border Animation */
+@keyframes pulse-border {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.4),
+                0 0 10px rgba(239, 68, 68, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.6),
+                0 0 20px rgba(239, 68, 68, 0.4);
+  }
+}
+
+.animate-pulse-border {
+  animation: pulse-border 2s ease-in-out infinite;
+  border-left: 4px solid #ef4444 !important;
+}
+
+/* Emergency gradient background */
+.emergency-bg {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%);
+}
