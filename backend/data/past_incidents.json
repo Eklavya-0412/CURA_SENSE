@@ -1,0 +1,243 @@
+[
+    {
+        "id": "INC-001",
+        "title": "Webhook delivery failures affecting multiple merchants",
+        "description": "Multiple merchants reported webhooks not being delivered. Root cause was our webhook service rate limiting on the sender side.",
+        "issue_type": "platform_regression",
+        "severity": "high",
+        "affected_merchants": [
+            "MCH-1001",
+            "MCH-1005",
+            "MCH-1008"
+        ],
+        "root_cause": "Webhook queue backlog caused by database connection pool exhaustion",
+        "resolution": "Increased database connection pool from 20 to 50 connections. Implemented circuit breaker pattern for webhook delivery.",
+        "resolution_steps": [
+            "Identified pattern through log analysis",
+            "Traced to database connection limits",
+            "Applied hotfix to increase pool size",
+            "Implemented monitoring for future prevention"
+        ],
+        "time_to_resolution_hours": 4.5,
+        "was_correct": true,
+        "lessons_learned": "Need better alerting on database connection pool utilization",
+        "occurred_at": "2026-01-15T10:00:00Z",
+        "resolved_at": "2026-01-15T14:30:00Z"
+    },
+    {
+        "id": "INC-002",
+        "title": "Stripe integration breaking after API upgrade",
+        "description": "Merchants unable to process payments after we upgraded the Stripe API version. Error: Invalid API key.",
+        "issue_type": "platform_regression",
+        "severity": "critical",
+        "affected_merchants": [
+            "MCH-1005",
+            "MCH-1012",
+            "MCH-1019"
+        ],
+        "root_cause": "API version upgrade changed the key format validation. Existing keys needed re-authentication.",
+        "resolution": "Rolled back API version temporarily. Created migration script to re-validate existing payment credentials.",
+        "resolution_steps": [
+            "Immediate rollback to previous API version",
+            "Notified affected merchants",
+            "Created credential re-validation flow",
+            "Gradual re-deployment with new validation"
+        ],
+        "time_to_resolution_hours": 8,
+        "was_correct": true,
+        "lessons_learned": "Payment integrations need separate staging validation before production rollout",
+        "occurred_at": "2026-01-20T09:00:00Z",
+        "resolved_at": "2026-01-20T17:00:00Z"
+    },
+    {
+        "id": "INC-003",
+        "title": "Currency display showing USD instead of store currency",
+        "description": "European merchants seeing USD prices instead of EUR. Caused by a caching issue after locale settings update.",
+        "issue_type": "platform_regression",
+        "severity": "high",
+        "affected_merchants": [
+            "MCH-1003",
+            "MCH-1007"
+        ],
+        "root_cause": "CDN cache not invalidated after currency settings change. Cached storefront pages showing old currency.",
+        "resolution": "Implemented automatic cache invalidation when currency settings change. Purged CDN cache for affected stores.",
+        "resolution_steps": [
+            "Identified CDN as the caching layer",
+            "Manually purged affected store caches",
+            "Added currency settings to cache key",
+            "Tested with staging stores"
+        ],
+        "time_to_resolution_hours": 2,
+        "was_correct": true,
+        "lessons_learned": "Currency/locale settings should trigger automatic cache invalidation",
+        "occurred_at": "2026-01-22T11:00:00Z",
+        "resolved_at": "2026-01-22T13:00:00Z"
+    },
+    {
+        "id": "INC-004",
+        "title": "Rate limiting incorrectly applied to bulk endpoints",
+        "description": "Merchants hitting rate limits on bulk product endpoints even when under quota. Bug in rate limiter configuration.",
+        "issue_type": "platform_regression",
+        "severity": "medium",
+        "affected_merchants": [
+            "MCH-1002",
+            "MCH-1011"
+        ],
+        "root_cause": "Rate limiter was counting bulk items instead of requests. A 500-item bulk request counted as 500 toward limit.",
+        "resolution": "Fixed rate limiter to count requests not items. Bulk endpoints now have separate higher limits.",
+        "resolution_steps": [
+            "Reproduced issue with test merchant",
+            "Traced rate limiter logic",
+            "Updated counting mechanism",
+            "Deployed with separate bulk limits"
+        ],
+        "time_to_resolution_hours": 3,
+        "was_correct": true,
+        "lessons_learned": "Bulk endpoints need different rate limiting strategy",
+        "occurred_at": "2026-01-18T14:00:00Z",
+        "resolved_at": "2026-01-18T17:00:00Z"
+    },
+    {
+        "id": "INC-005",
+        "title": "OAuth token expiry mismatch",
+        "description": "Merchants reporting tokens expiring after 1 hour instead of documented 24 hours.",
+        "issue_type": "documentation_gap",
+        "severity": "medium",
+        "affected_merchants": [
+            "MCH-1007",
+            "MCH-1015"
+        ],
+        "root_cause": "Documentation was outdated. Token expiry was changed to 1 hour in security update but docs weren't updated.",
+        "resolution": "Updated documentation to reflect 1-hour expiry. Added guidance on proper refresh token usage.",
+        "resolution_steps": [
+            "Verified actual token expiry (1 hour)",
+            "Updated API documentation",
+            "Added refresh token best practices guide",
+            "Notified affected merchants with update"
+        ],
+        "time_to_resolution_hours": 1,
+        "was_correct": true,
+        "lessons_learned": "Security changes must include documentation updates in same release",
+        "occurred_at": "2026-01-25T09:00:00Z",
+        "resolved_at": "2026-01-25T10:00:00Z"
+    },
+    {
+        "id": "INC-006",
+        "title": "VAT double-charging for EU customers",
+        "description": "EU customers being charged VAT twice - once in price and again at checkout.",
+        "issue_type": "merchant_misconfiguration",
+        "severity": "critical",
+        "affected_merchants": [
+            "MCH-1012",
+            "MCH-1022"
+        ],
+        "root_cause": "Merchants had 'Prices include tax' enabled but also 'Calculate tax at checkout'. Only one should be active.",
+        "resolution": "Provided clear guidance on tax configuration. Added validation to prevent conflicting settings.",
+        "resolution_steps": [
+            "Identified conflicting tax settings",
+            "Guided merchant to correct settings",
+            "Added UI validation for conflicting options",
+            "Updated documentation with examples"
+        ],
+        "time_to_resolution_hours": 0.5,
+        "was_correct": true,
+        "lessons_learned": "Tax settings need better UI to prevent common misconfigurations",
+        "occurred_at": "2026-01-26T10:00:00Z",
+        "resolved_at": "2026-01-26T10:30:00Z"
+    },
+    {
+        "id": "INC-007",
+        "title": "Product images not appearing after bulk upload",
+        "description": "Merchant uploaded 500 images via API but they weren't appearing on product pages.",
+        "issue_type": "merchant_misconfiguration",
+        "severity": "medium",
+        "affected_merchants": [
+            "MCH-1004"
+        ],
+        "root_cause": "Merchant was uploading to media endpoint but not linking to products. Two-step process required.",
+        "resolution": "Explained media-to-product linking process. Updated documentation with clear examples.",
+        "resolution_steps": [
+            "Reviewed merchant's API calls",
+            "Identified missing product association step",
+            "Provided sample code for linking",
+            "Added to FAQ and examples"
+        ],
+        "time_to_resolution_hours": 1,
+        "was_correct": true,
+        "lessons_learned": "Media upload documentation needs clearer step-by-step guide",
+        "occurred_at": "2026-01-27T11:00:00Z",
+        "resolved_at": "2026-01-27T12:00:00Z"
+    },
+    {
+        "id": "INC-008",
+        "title": "Password login failing for migrated customers",
+        "description": "Customers migrated from old platform unable to log in. Password hash incompatibility.",
+        "issue_type": "platform_regression",
+        "severity": "high",
+        "affected_merchants": [
+            "MCH-1015",
+            "MCH-1018"
+        ],
+        "root_cause": "Old platform used bcrypt with cost factor 10, new platform expected cost factor 12.",
+        "resolution": "Added backward compatibility for old hash format. Auto-upgrade hash on successful login.",
+        "resolution_steps": [
+            "Identified hash algorithm mismatch",
+            "Implemented hash format detection",
+            "Added backward-compatible validation",
+            "Auto-rehash on login for security"
+        ],
+        "time_to_resolution_hours": 6,
+        "was_correct": true,
+        "lessons_learned": "Migration scripts must handle password hash compatibility",
+        "occurred_at": "2026-01-28T08:00:00Z",
+        "resolved_at": "2026-01-28T14:00:00Z"
+    },
+    {
+        "id": "INC-009",
+        "title": "Discount code minimum purchase not clearly documented",
+        "description": "Merchants creating discount codes unaware of minimum purchase requirements. Customers confused.",
+        "issue_type": "documentation_gap",
+        "severity": "low",
+        "affected_merchants": [
+            "MCH-1008",
+            "MCH-1021"
+        ],
+        "root_cause": "Discount creation UI didn't clearly show minimum purchase was set. Documentation lacked examples.",
+        "resolution": "Improved discount UI to show active restrictions. Added troubleshooting guide for discount issues.",
+        "resolution_steps": [
+            "Reviewed discount creation flow",
+            "Added restriction summary in UI",
+            "Created discount troubleshooting doc",
+            "Added to merchant onboarding"
+        ],
+        "time_to_resolution_hours": 0.5,
+        "was_correct": true,
+        "lessons_learned": "All restrictions should be visible in summary view before saving",
+        "occurred_at": "2026-01-29T15:00:00Z",
+        "resolved_at": "2026-01-29T15:30:00Z"
+    },
+    {
+        "id": "INC-010",
+        "title": "Search index not updating after product imports",
+        "description": "Products added via CSV import not appearing in search. Manual indexing required.",
+        "issue_type": "platform_regression",
+        "severity": "medium",
+        "affected_merchants": [
+            "MCH-1017",
+            "MCH-1020"
+        ],
+        "root_cause": "Bulk import jobs weren't triggering search index update events. Only individual product creates did.",
+        "resolution": "Added search index trigger to bulk import completion. Implemented incremental indexing.",
+        "resolution_steps": [
+            "Traced product import flow",
+            "Identified missing index trigger",
+            "Added post-import index job",
+            "Implemented incremental indexing"
+        ],
+        "time_to_resolution_hours": 4,
+        "was_correct": true,
+        "lessons_learned": "All product mutation paths must trigger search indexing",
+        "occurred_at": "2026-01-30T09:00:00Z",
+        "resolved_at": "2026-01-30T13:00:00Z"
+    }
+]

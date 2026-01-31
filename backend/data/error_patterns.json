@@ -1,0 +1,378 @@
+[
+    {
+        "id": "ERR-001",
+        "error_code": "WEBHOOK_DELIVERY_FAILED",
+        "error_message": "Failed to deliver webhook to https://mystore.com/webhooks after 3 retries. Connection timeout.",
+        "category": "webhooks",
+        "severity": "high",
+        "symptoms": [
+            "No webhook events received",
+            "Order notifications missing",
+            "Fulfillment delays"
+        ],
+        "possible_causes": [
+            "Endpoint is down or unreachable",
+            "SSL certificate issues",
+            "Firewall blocking our IP ranges",
+            "Endpoint timeout < 30 seconds"
+        ],
+        "resolution_steps": [
+            "Verify endpoint is publicly accessible",
+            "Check SSL certificate validity",
+            "Whitelist IP ranges: 192.168.1.0/24, 10.0.0.0/8",
+            "Ensure endpoint responds within 30 seconds"
+        ],
+        "documentation_link": "/docs/webhooks/troubleshooting"
+    },
+    {
+        "id": "ERR-002",
+        "error_code": "RATE_LIMIT_EXCEEDED",
+        "error_message": "429 Too Many Requests. Rate limit of 100 requests per minute exceeded.",
+        "category": "api",
+        "severity": "medium",
+        "symptoms": [
+            "API returns 429 status",
+            "Sync jobs failing",
+            "Sporadic timeouts"
+        ],
+        "possible_causes": [
+            "Making too many concurrent requests",
+            "Not implementing exponential backoff",
+            "Burst traffic during peak hours",
+            "Multiple integrations using same API key"
+        ],
+        "resolution_steps": [
+            "Implement exponential backoff with jitter",
+            "Use bulk endpoints for batch operations",
+            "Spread requests across time window",
+            "Contact support for rate limit increase"
+        ],
+        "documentation_link": "/docs/api/rate-limits"
+    },
+    {
+        "id": "ERR-003",
+        "error_code": "PAYMENT_AUTH_FAILED",
+        "error_message": "Invalid API key provided for payment gateway. Authentication failed.",
+        "category": "payments",
+        "severity": "critical",
+        "symptoms": [
+            "Checkout fails at payment step",
+            "Invalid API key errors",
+            "Payment processing halted"
+        ],
+        "possible_causes": [
+            "API keys not properly copied",
+            "Using test key in production",
+            "Key permissions incorrect",
+            "Integration not re-authorized after migration"
+        ],
+        "resolution_steps": [
+            "Regenerate API keys from payment gateway dashboard",
+            "Verify using production keys (not test/sandbox)",
+            "Ensure payment gateway app is re-installed post-migration",
+            "Check webhook secret is also updated"
+        ],
+        "documentation_link": "/docs/payments/setup"
+    },
+    {
+        "id": "ERR-004",
+        "error_code": "CURRENCY_CONFIG_ERROR",
+        "error_message": "Currency display mismatch. Store currency: EUR, Display currency: USD",
+        "category": "checkout",
+        "severity": "high",
+        "symptoms": [
+            "Wrong currency shown",
+            "Price conversion errors",
+            "Customer confusion"
+        ],
+        "possible_causes": [
+            "Currency settings not migrated",
+            "Cache showing old values",
+            "Theme hardcoding currency symbol",
+            "Regional settings override"
+        ],
+        "resolution_steps": [
+            "Clear storefront cache",
+            "Verify currency settings in Dashboard > Settings > General",
+            "Check theme files for hardcoded currency symbols",
+            "Review multi-currency settings if enabled"
+        ],
+        "documentation_link": "/docs/settings/currencies"
+    },
+    {
+        "id": "ERR-005",
+        "error_code": "PRODUCT_SYNC_FAILURE",
+        "error_message": "Product sync failed. Media assets not found in expected location.",
+        "category": "products",
+        "severity": "medium",
+        "symptoms": [
+            "Images not displaying",
+            "Sync jobs incomplete",
+            "Media upload returns success but not visible"
+        ],
+        "possible_causes": [
+            "CDN propagation delay (wait 15-30 min)",
+            "Image URLs not using HTTPS",
+            "File size exceeds 20MB limit",
+            "Unsupported format (use JPG, PNG, WebP)"
+        ],
+        "resolution_steps": [
+            "Wait 30 minutes for CDN propagation",
+            "Verify images are under 20MB and in supported format",
+            "Use media API to check upload status",
+            "Re-upload failed images individually"
+        ],
+        "documentation_link": "/docs/products/media"
+    },
+    {
+        "id": "ERR-006",
+        "error_code": "OAUTH_TOKEN_EXPIRED",
+        "error_message": "Access token expired. Token lifetime: 3600 seconds.",
+        "category": "authentication",
+        "severity": "medium",
+        "symptoms": [
+            "401 Unauthorized errors",
+            "Background jobs failing",
+            "Token refresh not working"
+        ],
+        "possible_causes": [
+            "Refresh token not being used correctly",
+            "Token expiry time change in new API version",
+            "Clock sync issues between servers",
+            "Refresh token also expired"
+        ],
+        "resolution_steps": [
+            "Implement proper refresh token flow",
+            "Store refresh token securely",
+            "Handle token refresh before expiry (5 min buffer)",
+            "Re-authenticate if refresh token expired"
+        ],
+        "documentation_link": "/docs/authentication/oauth"
+    },
+    {
+        "id": "ERR-007",
+        "error_code": "INVENTORY_MISMATCH",
+        "error_message": "Inventory count discrepancy detected. Expected: 150, Actual: 145",
+        "category": "inventory",
+        "severity": "high",
+        "symptoms": [
+            "Stock counts incorrect",
+            "Overselling or underselling",
+            "CSV import partial failure"
+        ],
+        "possible_causes": [
+            "CSV import validation errors",
+            "Concurrent inventory updates",
+            "Location-based inventory misconfiguration",
+            "Variant-level vs product-level confusion"
+        ],
+        "resolution_steps": [
+            "Export current inventory to review discrepancies",
+            "Use inventory adjustments API for corrections",
+            "Implement inventory versioning/locking",
+            "Enable inventory history for audit trail"
+        ],
+        "documentation_link": "/docs/inventory/management"
+    },
+    {
+        "id": "ERR-008",
+        "error_code": "DISCOUNT_VALIDATION_ERROR",
+        "error_message": "Discount code SAVE20 not applicable. Minimum order value not met.",
+        "category": "checkout",
+        "severity": "medium",
+        "symptoms": [
+            "Discount code rejected at checkout",
+            "Code shows 'Invalid'",
+            "Customers can't apply promotions"
+        ],
+        "possible_causes": [
+            "Minimum purchase requirement set",
+            "Customer eligibility restrictions",
+            "Code usage limit reached",
+            "Date range expired"
+        ],
+        "resolution_steps": [
+            "Review discount rules in Dashboard > Discounts",
+            "Check 'Applies to' restrictions",
+            "Verify usage count hasn't exceeded limit",
+            "Confirm start/end dates are current"
+        ],
+        "documentation_link": "/docs/discounts/setup"
+    },
+    {
+        "id": "ERR-009",
+        "error_code": "PERMISSION_DENIED",
+        "error_message": "403 Forbidden. API key lacks required scope: products:write",
+        "category": "api",
+        "severity": "high",
+        "symptoms": [
+            "POST/PUT requests return 403",
+            "Read works but write fails",
+            "Permissions changed error"
+        ],
+        "possible_causes": [
+            "API key scopes not updated post-migration",
+            "New API version requires additional scopes",
+            "Key regenerated without all scopes",
+            "Store permissions changed"
+        ],
+        "resolution_steps": [
+            "Review required scopes in API documentation",
+            "Regenerate key with all necessary scopes",
+            "Check app permissions in store settings",
+            "Verify API version compatibility"
+        ],
+        "documentation_link": "/docs/api/authentication#scopes"
+    },
+    {
+        "id": "ERR-010",
+        "error_code": "TAX_CALCULATION_ERROR",
+        "error_message": "Tax calculation failed. Conflicting tax settings: inclusive and exclusive",
+        "category": "checkout",
+        "severity": "critical",
+        "symptoms": [
+            "Double taxation",
+            "Prices inconsistent",
+            "Cart totals wrong",
+            "EU VAT issues"
+        ],
+        "possible_causes": [
+            "Tax-inclusive and exclusive settings conflict",
+            "Regional tax rules not configured",
+            "Price migration didn't preserve tax settings",
+            "Multiple tax services conflicting"
+        ],
+        "resolution_steps": [
+            "Review Settings > Taxes > Tax calculation",
+            "Choose either tax-inclusive OR exclusive, not both",
+            "Configure per-region tax rules if needed",
+            "Test with sample orders before going live"
+        ],
+        "documentation_link": "/docs/taxes/configuration"
+    },
+    {
+        "id": "ERR-011",
+        "error_code": "SUBSCRIPTION_RENEWAL_FAILED",
+        "error_message": "Subscription renewal failed for customer ID: CUST-12345. Payment method declined.",
+        "category": "payments",
+        "severity": "critical",
+        "symptoms": [
+            "Subscription renewals not processing",
+            "Customers losing access",
+            "Revenue loss"
+        ],
+        "possible_causes": [
+            "Payment method expired or declined",
+            "Billing integration disconnected post-migration",
+            "Webhook for payment events not configured",
+            "Customer payment info not migrated"
+        ],
+        "resolution_steps": [
+            "Verify billing integration is connected",
+            "Check payment webhook endpoints are active",
+            "Review failed payment attempts in gateway dashboard",
+            "Notify affected customers to update payment method"
+        ],
+        "documentation_link": "/docs/subscriptions/billing"
+    },
+    {
+        "id": "ERR-012",
+        "error_code": "SHIPPING_ZONE_MISMATCH",
+        "error_message": "Shipping rate not found for destination: DE, Method: International Priority",
+        "category": "shipping",
+        "severity": "medium",
+        "symptoms": [
+            "Wrong shipping rates",
+            "International rates as domestic",
+            "Checkout shipping errors"
+        ],
+        "possible_causes": [
+            "Shipping zones not properly configured",
+            "Country-to-zone mappings incorrect",
+            "Carrier integration rate mismatch",
+            "Weight-based rules misconfigured"
+        ],
+        "resolution_steps": [
+            "Review shipping zones in Settings > Shipping",
+            "Verify country assignments to zones",
+            "Test rates with different destination countries",
+            "Check carrier API configuration"
+        ],
+        "documentation_link": "/docs/shipping/zones"
+    },
+    {
+        "id": "ERR-013",
+        "error_code": "CUSTOMER_AUTH_FAILED",
+        "error_message": "Customer login failed. Password hash algorithm mismatch.",
+        "category": "authentication",
+        "severity": "high",
+        "symptoms": [
+            "Migrated customers can't log in",
+            "Password reset not working",
+            "Account lockouts"
+        ],
+        "possible_causes": [
+            "Password hashing algorithm different in new platform",
+            "Customer data import incomplete",
+            "Email verification required post-migration",
+            "Password reset email configuration issues"
+        ],
+        "resolution_steps": [
+            "Trigger bulk password reset for migrated customers",
+            "Verify email sending configuration",
+            "Check customer import logs for errors",
+            "Send migration communication to customers"
+        ],
+        "documentation_link": "/docs/customers/migration"
+    },
+    {
+        "id": "ERR-014",
+        "error_code": "SEARCH_INDEX_STALE",
+        "error_message": "Product search index outdated. Last update: 72 hours ago.",
+        "category": "products",
+        "severity": "medium",
+        "symptoms": [
+            "Search not finding products",
+            "New products not appearing",
+            "Search results outdated"
+        ],
+        "possible_causes": [
+            "Search index not rebuilt after migration",
+            "Indexing job failing silently",
+            "Product catalog too large for auto-index",
+            "Event triggers for indexing not set up"
+        ],
+        "resolution_steps": [
+            "Trigger manual search index rebuild",
+            "Check indexing job status in admin panel",
+            "Enable incremental indexing for large catalogs",
+            "Verify product event webhooks for index updates"
+        ],
+        "documentation_link": "/docs/search/troubleshooting"
+    },
+    {
+        "id": "ERR-015",
+        "error_code": "BULK_OPERATION_TIMEOUT",
+        "error_message": "Bulk operation timed out after 300 seconds. Processed 450 of 1000 items.",
+        "category": "api",
+        "severity": "medium",
+        "symptoms": [
+            "Bulk updates fail",
+            "Import jobs timeout",
+            "Partial data updates"
+        ],
+        "possible_causes": [
+            "File too large for single operation",
+            "Server load causing slow processing",
+            "Network timeouts",
+            "Database contention during peak hours"
+        ],
+        "resolution_steps": [
+            "Break large files into smaller batches (500 items max)",
+            "Run bulk operations during off-peak hours",
+            "Use async bulk operation endpoints",
+            "Monitor operation status via job ID"
+        ],
+        "documentation_link": "/docs/api/bulk-operations"
+    }
+]

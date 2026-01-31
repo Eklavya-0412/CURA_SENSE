@@ -1,0 +1,327 @@
+[
+    {
+        "id": "TKT-001",
+        "merchant_id": "MCH-1001",
+        "subject": "Webhook notifications not arriving",
+        "description": "We set up webhooks to our endpoint https://mystore.com/webhooks but haven't received any order notifications since yesterday. Orders are being placed but no webhook events come through. We verified the endpoint is up.",
+        "migration_stage": "post-migration",
+        "priority": "high",
+        "timestamp": "2026-01-31T08:15:00Z",
+        "metadata": {
+            "category": "webhooks",
+            "product": "orders-api"
+        }
+    },
+    {
+        "id": "TKT-002",
+        "merchant_id": "MCH-1002",
+        "subject": "API rate limit exceeded during peak hours",
+        "description": "Getting 429 errors when syncing products during our sale events. We're making about 500 requests per minute. Documentation says our tier allows 1000/min but we're getting blocked.",
+        "migration_stage": "post-migration",
+        "priority": "high",
+        "timestamp": "2026-01-31T09:30:00Z",
+        "metadata": {
+            "category": "api",
+            "product": "products-api"
+        }
+    },
+    {
+        "id": "TKT-003",
+        "merchant_id": "MCH-1003",
+        "subject": "Checkout page shows wrong currency",
+        "description": "After migration, our checkout page displays prices in USD instead of EUR. We set the default currency to EUR in the dashboard but it's not reflecting on the storefront.",
+        "migration_stage": "post-migration",
+        "priority": "critical",
+        "timestamp": "2026-01-31T10:45:00Z",
+        "metadata": {
+            "category": "checkout",
+            "product": "storefront"
+        }
+    },
+    {
+        "id": "TKT-004",
+        "merchant_id": "MCH-1004",
+        "subject": "Product images not syncing",
+        "description": "Uploaded 50 new product images via the API but they're not showing up on the product pages. The API returned success for all uploads. Using the media-upload endpoint.",
+        "migration_stage": "mid-migration",
+        "priority": "medium",
+        "timestamp": "2026-01-31T11:00:00Z",
+        "metadata": {
+            "category": "products",
+            "product": "media-api"
+        }
+    },
+    {
+        "id": "TKT-005",
+        "merchant_id": "MCH-1005",
+        "subject": "Can't connect payment gateway after migration",
+        "description": "Stripe integration stopped working. Getting 'Invalid API key' error even though we've re-entered the credentials multiple times. Worked fine before the migration.",
+        "migration_stage": "post-migration",
+        "priority": "critical",
+        "timestamp": "2026-01-31T11:30:00Z",
+        "metadata": {
+            "category": "payments",
+            "product": "payments-api"
+        }
+    },
+    {
+        "id": "TKT-006",
+        "merchant_id": "MCH-1001",
+        "subject": "Order status webhooks delayed",
+        "description": "Following up on TKT-001. Some webhooks started coming through but they're delayed by 2-3 hours. Need them in real-time for our fulfillment system.",
+        "migration_stage": "post-migration",
+        "priority": "high",
+        "timestamp": "2026-01-31T14:00:00Z",
+        "metadata": {
+            "category": "webhooks",
+            "product": "orders-api"
+        }
+    },
+    {
+        "id": "TKT-007",
+        "merchant_id": "MCH-1006",
+        "subject": "Inventory count mismatch",
+        "description": "Physical inventory shows 150 units but platform shows 145. Happened after bulk update via CSV import. Need to fix before sale starts tomorrow.",
+        "migration_stage": "mid-migration",
+        "priority": "high",
+        "timestamp": "2026-01-31T15:20:00Z",
+        "metadata": {
+            "category": "inventory",
+            "product": "inventory-api"
+        }
+    },
+    {
+        "id": "TKT-008",
+        "merchant_id": "MCH-1007",
+        "subject": "OAuth token expires too quickly",
+        "description": "Our access tokens expire after 1 hour but documentation says 24 hours. Breaking our background sync jobs. Using refresh_token flow correctly.",
+        "migration_stage": "post-migration",
+        "priority": "medium",
+        "timestamp": "2026-01-31T16:00:00Z",
+        "metadata": {
+            "category": "authentication",
+            "product": "auth-api"
+        }
+    },
+    {
+        "id": "TKT-009",
+        "merchant_id": "MCH-1008",
+        "subject": "Discount codes not applying",
+        "description": "Created a 20% discount code 'SAVE20' but customers report it's not working at checkout. Code shows as active in dashboard.",
+        "migration_stage": "post-migration",
+        "priority": "high",
+        "timestamp": "2026-01-31T16:45:00Z",
+        "metadata": {
+            "category": "checkout",
+            "product": "discounts-api"
+        }
+    },
+    {
+        "id": "TKT-010",
+        "merchant_id": "MCH-1009",
+        "subject": "Mobile app not receiving push notifications",
+        "description": "Migrated our mobile app to use the new SDK but push notifications for order updates aren't coming through. APNs and FCM credentials are configured.",
+        "migration_stage": "mid-migration",
+        "priority": "medium",
+        "timestamp": "2026-01-31T17:15:00Z",
+        "metadata": {
+            "category": "notifications",
+            "product": "mobile-sdk"
+        }
+    },
+    {
+        "id": "TKT-011",
+        "merchant_id": "MCH-1010",
+        "subject": "Can't create new products via API",
+        "description": "POST /api/products returns 403 Forbidden. Our API key has 'products:write' scope. Worked last week before updating to new API version.",
+        "migration_stage": "post-migration",
+        "priority": "high",
+        "timestamp": "2026-01-31T18:00:00Z",
+        "metadata": {
+            "category": "products",
+            "product": "products-api"
+        }
+    },
+    {
+        "id": "TKT-012",
+        "merchant_id": "MCH-1002",
+        "subject": "Bulk product update failing",
+        "description": "Following up TKT-002. Even after waiting for rate limit reset, bulk updates fail with timeout errors. Files are under 1MB as per docs.",
+        "migration_stage": "post-migration",
+        "priority": "high",
+        "timestamp": "2026-01-31T18:30:00Z",
+        "metadata": {
+            "category": "products",
+            "product": "products-api"
+        }
+    },
+    {
+        "id": "TKT-013",
+        "merchant_id": "MCH-1011",
+        "subject": "Shipping rates not calculating correctly",
+        "description": "International shipping rates showing as domestic rates. We use calculated rates based on weight. Shipping zones look correct in settings.",
+        "migration_stage": "post-migration",
+        "priority": "medium",
+        "timestamp": "2026-01-30T09:00:00Z",
+        "metadata": {
+            "category": "shipping",
+            "product": "shipping-api"
+        }
+    },
+    {
+        "id": "TKT-014",
+        "merchant_id": "MCH-1012",
+        "subject": "Tax calculations wrong for EU",
+        "description": "VAT is being added on top of prices instead of included. We're set to 'Prices include tax' but checkout adds VAT again for EU customers.",
+        "migration_stage": "post-migration",
+        "priority": "critical",
+        "timestamp": "2026-01-30T10:30:00Z",
+        "metadata": {
+            "category": "checkout",
+            "product": "tax-api"
+        }
+    },
+    {
+        "id": "TKT-015",
+        "merchant_id": "MCH-1013",
+        "subject": "Order emails going to spam",
+        "description": "Customers say order confirmation emails are landing in spam folder. We added SPF and DKIM records as instructed but still having issues.",
+        "migration_stage": "post-migration",
+        "priority": "medium",
+        "timestamp": "2026-01-30T11:45:00Z",
+        "metadata": {
+            "category": "notifications",
+            "product": "email-api"
+        }
+    },
+    {
+        "id": "TKT-016",
+        "merchant_id": "MCH-1001",
+        "subject": "Third webhook issue this week",
+        "description": "Webhooks completely stopped again. This is becoming a pattern - works for a day then stops. Using the same configuration that worked before.",
+        "migration_stage": "post-migration",
+        "priority": "critical",
+        "timestamp": "2026-01-30T14:00:00Z",
+        "metadata": {
+            "category": "webhooks",
+            "product": "orders-api"
+        }
+    },
+    {
+        "id": "TKT-017",
+        "merchant_id": "MCH-1014",
+        "subject": "Analytics data not populating",
+        "description": "Dashboard shows 0 sales for the past 3 days but we definitely had orders. Order history shows them but analytics are blank.",
+        "migration_stage": "mid-migration",
+        "priority": "low",
+        "timestamp": "2026-01-30T15:30:00Z",
+        "metadata": {
+            "category": "analytics",
+            "product": "analytics-api"
+        }
+    },
+    {
+        "id": "TKT-018",
+        "merchant_id": "MCH-1015",
+        "subject": "Customer login not working",
+        "description": "Customers migrated from old platform can't log in with their old passwords. Password reset emails not going out either.",
+        "migration_stage": "mid-migration",
+        "priority": "high",
+        "timestamp": "2026-01-30T16:00:00Z",
+        "metadata": {
+            "category": "authentication",
+            "product": "customers-api"
+        }
+    },
+    {
+        "id": "TKT-019",
+        "merchant_id": "MCH-1016",
+        "subject": "Subscription billing not renewing",
+        "description": "Customer subscriptions due for renewal yesterday didn't process. About 50 affected customers. Using Stripe billing integration.",
+        "migration_stage": "post-migration",
+        "priority": "critical",
+        "timestamp": "2026-01-30T17:00:00Z",
+        "metadata": {
+            "category": "payments",
+            "product": "subscriptions-api"
+        }
+    },
+    {
+        "id": "TKT-020",
+        "merchant_id": "MCH-1017",
+        "subject": "Search not finding products",
+        "description": "Product search on storefront returns no results for exact product names. Products are visible when browsing categories though.",
+        "migration_stage": "post-migration",
+        "priority": "medium",
+        "timestamp": "2026-01-30T18:00:00Z",
+        "metadata": {
+            "category": "products",
+            "product": "search-api"
+        }
+    },
+    {
+        "id": "TKT-021",
+        "merchant_id": "MCH-1018",
+        "subject": "Gift cards not being accepted",
+        "description": "Gift cards issued before migration aren't working. System says 'Invalid code'. We imported the gift card database as instructed.",
+        "migration_stage": "post-migration",
+        "priority": "high",
+        "timestamp": "2026-01-29T09:00:00Z",
+        "metadata": {
+            "category": "checkout",
+            "product": "giftcards-api"
+        }
+    },
+    {
+        "id": "TKT-022",
+        "merchant_id": "MCH-1019",
+        "subject": "Multi-currency prices not updating",
+        "description": "Changed base prices but other currencies still show old converted prices. Auto-conversion should have updated them per our settings.",
+        "migration_stage": "post-migration",
+        "priority": "medium",
+        "timestamp": "2026-01-29T10:30:00Z",
+        "metadata": {
+            "category": "products",
+            "product": "pricing-api"
+        }
+    },
+    {
+        "id": "TKT-023",
+        "merchant_id": "MCH-1020",
+        "subject": "Fulfillment integration broken",
+        "description": "ShipStation integration stopped syncing orders. Was working fine until 3 days ago. Nothing changed on our end.",
+        "migration_stage": "post-migration",
+        "priority": "high",
+        "timestamp": "2026-01-29T11:45:00Z",
+        "metadata": {
+            "category": "shipping",
+            "product": "fulfillment-api"
+        }
+    },
+    {
+        "id": "TKT-024",
+        "merchant_id": "MCH-1005",
+        "subject": "Still can't process payments",
+        "description": "Following up TKT-005. Tried regenerating Stripe keys and re-adding. Same error. Our Stripe dashboard shows the keys are valid.",
+        "migration_stage": "post-migration",
+        "priority": "critical",
+        "timestamp": "2026-01-29T14:00:00Z",
+        "metadata": {
+            "category": "payments",
+            "product": "payments-api"
+        }
+    },
+    {
+        "id": "TKT-025",
+        "merchant_id": "MCH-1021",
+        "subject": "Page load times extremely slow",
+        "description": "Product pages taking 8-10 seconds to load. Started after we added 500 products via CSV import. Images are all optimized.",
+        "migration_stage": "mid-migration",
+        "priority": "high",
+        "timestamp": "2026-01-29T15:30:00Z",
+        "metadata": {
+            "category": "performance",
+            "product": "storefront"
+        }
+    }
+]

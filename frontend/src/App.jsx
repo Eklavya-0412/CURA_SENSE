@@ -1,7 +1,7 @@
-import ChatInterface from './components/ChatInterface';
+import AgentDashboard from './components/AgentDashboard';
 
 function App() {
-  return <ChatInterface />;
+  return <AgentDashboard />;
 }
 
 export default App;

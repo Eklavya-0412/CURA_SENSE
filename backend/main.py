@@ -1,17 +1,18 @@
 """
-FastAPI Main Application - Agentic AI Backend
+FastAPI Main Application - MigraGuard Agent Backend
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import API_HOST, API_PORT
 from routes import chat_router, documents_router
+from routes.agent import router as agent_router
 from models.schemas import HealthResponse
 
 # Create FastAPI app
 app = FastAPI(
-    title="Agentic AI API",
-    description="Backend API for Agentic AI application with LangChain and RAG",
+    title="MigraGuard Agent API",
+    description="Backend API for MigraGuard - Autonomous Migration Sentinel with Self-Healing Capabilities",
     version="1.0.0"
 )
 
@@ -27,6 +28,7 @@ app.add_middleware(
 # Include routers
 app.include_router(chat_router)
 app.include_router(documents_router)
+app.include_router(agent_router)  # MigraGuard Support Agent routes
 
 
 @app.get("/", response_model=HealthResponse)

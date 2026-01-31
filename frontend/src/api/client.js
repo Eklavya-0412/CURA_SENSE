@@ -123,3 +123,87 @@ export async function healthCheck() {
     const response = await fetch(`${API_BASE_URL}/health`);
     return response.json();
 }
+
+// ============ AGENT API ============
+
+/**
+ * Analyze tickets and errors
+ */
+export async function analyzeIssues(tickets = [], errors = []) {
+    const response = await fetch(`${API_BASE_URL}/agent/analyze`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            tickets,
+            errors
+        }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to analyze issues');
+    }
+
+    return response.json();
+}
+
+/**
+ * Get approval queue
+ */
+export async function getApprovalQueue() {
+    const response = await fetch(`${API_BASE_URL}/agent/queue`);
+
+    if (!response.ok) {
+        throw new Error('Failed to get approval queue');
+    }
+
+    return response.json();
+}
+
+/**
+ * Approve or reject an action
+ */
+export async function approveAction(decision) {
+    const response = await fetch(`${API_BASE_URL}/agent/approve`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(decision),
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to process approval');
+    }
+
+    return response.json();
+}
+
+/**
+ * Get session history
+ */
+export async function getSessionHistory(limit = 10) {
+    const response = await fetch(`${API_BASE_URL}/agent/history?limit=${limit}`);
+
+    if (!response.ok) {
+        throw new Error('Failed to get session history');
+    }
+
+    return response.json();
+}
+
+/**
+ * Get agent metrics
+ */
+export async function getAgentMetrics() {
+    const response = await fetch(`${API_BASE_URL}/agent/metrics`);
+
+    if (!response.ok) {
+        throw new Error('Failed to get metrics');
+    }
+
+    return response.json();
+}
