@@ -116,15 +116,33 @@ def cluster_node(state: Dict[str, Any]) -> Dict[str, Any]:
     - Are error messages semantically similar?
     
     If yes, treat as systemic issue.
+    Creates descriptive cluster names for the dashboard UI.
     """
     issues = state.get("observed_issues", [])
+    tickets = state.get("tickets", [])
+    
+    # Helper to extract cluster name from context
+    def get_cluster_name(issue, ticket_idx=0):
+        # Try to get subject from context (set in observe_node)
+        subject = issue.context.get("subject", "")
+        category = issue.context.get("category", "")
+        
+        if subject:
+            return subject
+        elif category:
+            return f"{category.title()} Issue"
+        else:
+            # Fallback: Use first part of error message
+            return issue.error_message[:50] if issue.error_message else "General Migration Issue"
     
     if len(issues) <= 1:
         # Single issue, no clustering needed
+        cluster_name = get_cluster_name(issues[0]) if issues else "No Issues"
+        
         cluster = IssueCluster(
             cluster_id=str(uuid.uuid4()),
             issues=issues,
-            representative_text=issues[0].error_message if issues else "",
+            representative_text=cluster_name,
             migration_stages=[issues[0].migration_stage.value] if issues else [],
             affected_merchants=[issues[0].merchant_id] if issues and issues[0].merchant_id else [],
             is_systemic=False,
@@ -163,14 +181,20 @@ def cluster_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 cluster_issues.append(other_issue)
                 used_indices.add(j)
         
-        # Create cluster
+        # Create cluster with descriptive name
         merchants = list(set(i.merchant_id for i in cluster_issues if i.merchant_id))
         stages = list(set(i.migration_stage.value for i in cluster_issues))
+        
+        # Get cluster name from the first issue
+        cluster_name = get_cluster_name(cluster_issues[0])
+        if len(cluster_issues) > 1:
+            category = cluster_issues[0].context.get("category", "issues")
+            cluster_name = f"{category.title()} ({len(cluster_issues)} tickets)"
         
         cluster = IssueCluster(
             cluster_id=str(uuid.uuid4()),
             issues=cluster_issues,
-            representative_text=cluster_issues[0].error_message,
+            representative_text=cluster_name,
             migration_stages=stages,
             affected_merchants=merchants,
             is_systemic=len(cluster_issues) > 2 or len(merchants) > 1,
@@ -520,17 +544,17 @@ def decide_action_node(state: Dict[str, Any]) -> Dict[str, Any]:
 # ============ STEP 7: ACT (DRAFT ONLY) ============
 
 async def act_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    STEP 7 — ACT (WITH BOUNDARIES)
-    
-    You may: Draft solutions, Draft escalation summaries, Suggest mitigation steps
-    You must NOT: Apply fixes directly, Message merchants automatically
-    """
+    # 1. ADD THE GUARD: Check if we are allowed to act
+    # If the session requires approval and hasn't received it, exit early.
+    if state.get("requires_human_approval") and state.get("approval_status") != "approved":
+        return state
+
     action_type = state.get("action_type")
     diagnosis = state.get("diagnosis")
     clusters = state.get("clusters", [])
     knowledge_sources = state.get("knowledge_sources", [])
     
+    # Validation check
     if not action_type or not diagnosis:
         return {
             **state,
@@ -543,63 +567,47 @@ async def act_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "status": HealingStatus.ACTING
         }
     
-    # Get issue summary
+    # 2. Extract context for the prompt
     if clusters:
         main_cluster = max(clusters, key=lambda c: len(c.issues))
         issue_summary = main_cluster.representative_text[:500]
     else:
         issue_summary = "No specific issue identified"
     
-    # Get knowledge context
     knowledge_context = "\n".join([ks.content[:200] for ks in knowledge_sources[:2]])
     
-    # Generate draft based on action type
+    # 3. Select Template based on Action Type
     llm = get_llm()
-    
     if action_type == ActionType.PROVIDE_SETUP_INSTRUCTIONS:
         prompt = ChatPromptTemplate.from_template("""
-Generate step-by-step setup instructions for a merchant to fix this issue:
-
-Issue: {issue}
-Root Cause: {root_cause}
-
-Relevant Documentation:
-{knowledge}
-
-Provide clear, numbered steps. Be specific and actionable.
-""")
+            Generate step-by-step setup instructions for a merchant to fix this issue:
+            Issue: {issue}
+            Root Cause: {root_cause}
+            Relevant Documentation: {knowledge}
+            Provide clear, numbered steps. Be specific and actionable.
+        """)
         target = "merchant"
-        
     elif action_type == ActionType.ESCALATE_TO_ENGINEERING:
         prompt = ChatPromptTemplate.from_template("""
-Draft an engineering escalation for this platform issue:
-
-Issue: {issue}
-Root Cause: {root_cause}
-
-Evidence:
-{knowledge}
-
-Include: Summary, Impact, Recommended Investigation Steps
-""")
+            Draft an engineering escalation for this platform issue:
+            Issue: {issue}
+            Root Cause: {root_cause}
+            Evidence: {knowledge}
+            Include: Summary, Impact, Recommended Investigation Steps
+        """)
         target = "engineering"
-        
     else:
         prompt = ChatPromptTemplate.from_template("""
-Draft a support response for this issue:
-
-Issue: {issue}
-Root Cause: {root_cause}
-
-Reference:
-{knowledge}
-
-Be helpful, acknowledge the issue, and provide next steps.
-""")
+            Draft a support response for this issue:
+            Issue: {issue}
+            Root Cause: {root_cause}
+            Reference: {knowledge}
+            Be helpful, acknowledge the issue, and provide next steps.
+        """)
         target = "support"
     
+    # 4. Generate the draft
     chain = prompt | llm | StrOutputParser()
-    
     try:
         draft = await chain.ainvoke({
             "issue": issue_summary,
@@ -609,6 +617,7 @@ Be helpful, acknowledge the issue, and provide next steps.
     except Exception as e:
         draft = f"Error generating draft: {str(e)}"
     
+    # 5. Return updated state
     proposed_action = ProposedAction(
         action_type=action_type,
         draft_content=draft,
@@ -619,7 +628,7 @@ Be helpful, acknowledge the issue, and provide next steps.
     return {
         **state,
         "proposed_action": proposed_action,
-        "status": HealingStatus.ACTING
+        "status": HealingStatus.ACTING # Now this status is only set when acting actually occurs
     }
 
 
@@ -709,12 +718,15 @@ Confidence is below 85% ({diagnosis.confidence:.0%}). This indicates:
     
     # Determine if this should be a learning candidate
     is_learning = diagnosis and diagnosis.confidence < 0.7
-    
+
+    # Determine if this should be a waiting candidate
+    is_waiting = state.get("requires_human_approval") and state.get("approval_status") != "approved"
+    final_status = HealingStatus.AWAITING_APPROVAL if is_waiting else HealingStatus.COMPLETED
     return {
         **state,
         "explanation": explanation,
         "is_learning_candidate": is_learning,
-        "status": HealingStatus.COMPLETED
+        "status": final_status
     }
 
 

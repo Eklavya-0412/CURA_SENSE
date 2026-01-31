@@ -49,6 +49,8 @@ class HealingStatus(str, Enum):
     AWAITING_APPROVAL = "awaiting_approval"
     COMPLETED = "completed"
     FAILED = "failed"
+    ANALYZING = "analyzing"  # Initial state when client submits
+    DISPATCHED = "dispatched"  # Final state after server clicks 'Send to Client'
 
 
 class ActionType(str, Enum):
@@ -175,6 +177,7 @@ class HealingSession(BaseModel):
     # Inputs
     tickets: List[SupportTicket] = []
     errors: List[ErrorLog] = []
+    client_message: Optional[str] = None  # The original text from the client side
     
     # Step outputs
     observed_issues: List[Issue] = []
@@ -194,6 +197,9 @@ class HealingSession(BaseModel):
     is_learning_candidate: bool = False
     human_feedback: Optional[str] = None
     was_correct: Optional[bool] = None
+    
+    # Dispatch tracking
+    dispatched_at: Optional[datetime] = None
 
 
 # ============ Agent Output Models ============

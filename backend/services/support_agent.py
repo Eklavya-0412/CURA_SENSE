@@ -4,6 +4,7 @@ Orchestrates the LangGraph workflow and provides a simple API.
 """
 
 import uuid
+import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -12,8 +13,13 @@ from models.types import (
     HealingSession, HealingStatus, RootCause, RiskLevel,
     MigrationStage, ApprovalRequest
 )
-from agents.graph import create_initial_state, SupportAgentState
+from agents.graph import create_initial_state, SupportAgentState, compile_support_agent
 from agents import nodes
+from langgraph.checkpoint.memory import MemorySaver
+
+# Global memory instance - shared across all requests
+memory = MemorySaver()
+
 
 
 class SupportAgentService:
@@ -59,7 +65,6 @@ class SupportAgentService:
     ) -> AgentOutput:
         """
         Main entry point - analyze tickets/errors through the 10-step workflow.
-        
         Returns the structured AgentOutput matching the system prompt format.
         """
         session_id = str(uuid.uuid4())
@@ -69,11 +74,8 @@ class SupportAgentService:
         ticket_models = []
         if tickets:
             for t in tickets:
-                # Handle timestamp - must check for actual value, not just key presence
                 ts = t.get("timestamp")
                 timestamp = datetime.fromisoformat(ts) if ts else datetime.now()
-                
-                # Handle ID - check if it exists and is not None
                 t_id = t.get("id")
                 ticket_id = t_id if t_id else str(uuid.uuid4())
 
@@ -91,11 +93,8 @@ class SupportAgentService:
         error_models = []
         if errors:
             for e in errors:
-                # Handle timestamp - must check for actual value
                 ts = e.get("timestamp")
                 timestamp = datetime.fromisoformat(ts) if ts else datetime.now()
-                
-                # Handle ID - check if it exists and is not None
                 e_id = e.get("id")
                 error_id = e_id if e_id else str(uuid.uuid4())
 
@@ -112,44 +111,30 @@ class SupportAgentService:
                 error_models.append(error)
         
         # Initialize state
-        state = create_initial_state(session_id, ticket_models, error_models)
+        initial_state = create_initial_state(session_id, ticket_models, error_models)
         
-        # Run through the workflow steps
-        # Step 1: Observe
-        state = nodes.observe_node(state)
+        # Use the compiled graph with global memory and unique thread_id
+        app = compile_support_agent(memory)
+        config = {"configurable": {"thread_id": session_id}}
         
-        # Step 2: Cluster
-        state = nodes.cluster_node(state)
+        # Execute the graph until it hits the interrupt (wait_for_approval if needed)
+        await app.ainvoke(initial_state, config=config)
         
-        # Step 3: Search Knowledge
-        state = nodes.search_knowledge_node(state)
+        # Retrieve the state where the graph paused or completed
+        snapshot = await app.aget_state(config)
+        state = snapshot.values
         
-        # Step 4: Diagnose (async)
-        state = await nodes.diagnose_node(state)
-        
-        # Step 5: Risk Assessment
-        state = nodes.assess_risk_node(state)
-        
-        # Step 6: Decide Action
-        state = nodes.decide_action_node(state)
-        
-        # Step 7: Act (async)
-        state = await nodes.act_node(state)
-        
-        # Step 8: Explain
-        state = nodes.explain_node(state)
-        
-        # Store session
+        # Store session for retrieval
         self._sessions[session_id] = state
         
-        # If requires approval, add to queue
-        if state.get("requires_human_approval", False):
-            self._metrics["human_escalated"] += 1
+        # Check if approval is required
+        if state.get("requires_human_approval"):
             self._add_to_approval_queue(session_id, state)
+            self._metrics["human_escalated"] += 1
         else:
+            # If no approval needed, graph should have completed
             self._metrics["auto_resolved"] += 1
         
-        # Build output
         return self._build_output(session_id, state)
     
     def _build_output(self, session_id: str, state: SupportAgentState) -> AgentOutput:
@@ -189,8 +174,19 @@ class SupportAgentService:
         risk_assessment = state.get("risk_assessment")
         proposed_action = state.get("proposed_action")
         
-        if not diagnosis or not proposed_action:
+        if not diagnosis:
             return
+        
+        # Create placeholder action if not yet generated (will be generated in act node after approval)
+        if not proposed_action:
+            from models.types import ProposedAction, ActionType
+            action_type = state.get("action_type", ActionType.REQUEST_HUMAN_REVIEW)
+            proposed_action = ProposedAction(
+                action_type=action_type,
+                draft_content="Action will be generated after approval.",
+                target_audience="pending",
+                steps=[]
+            )
         
         request = ApprovalRequest(
             id=str(uuid.uuid4()),
@@ -206,19 +202,22 @@ class SupportAgentService:
         self._approval_queue.append(request)
     
     def get_approval_queue(self) -> List[Dict[str, Any]]:
-        """Get all pending approvals"""
+        """Get all pending approvals - formatted for frontend ApprovalCard component"""
         return [
             {
                 "id": req.id,
                 "session_id": req.session_id,
                 "proposed_action": {
                     "type": req.proposed_action.action_type.value,
-                    "draft": req.proposed_action.draft_content[:500],
+                    "draft_content": req.proposed_action.draft_content[:500],
                     "target": req.proposed_action.target_audience
                 },
                 "diagnosis": {
                     "root_cause": req.diagnosis.root_cause.value,
                     "confidence": req.diagnosis.confidence
+                },
+                "risk_assessment": {
+                    "risk_level": req.risk_assessment.risk_level.value if req.risk_assessment else "unknown"
                 },
                 "risk": req.risk_assessment.risk_level.value if req.risk_assessment else "unknown",
                 "explanation": req.explanation[:500],
@@ -229,56 +228,127 @@ class SupportAgentService:
             if req.status == "pending"
         ]
     
-    async def approve_action(
-        self,
-        approval_id: str,
-        approved: bool,
-        reviewer_notes: str = None,
-        actual_resolution: str = None
-    ) -> Dict[str, Any]:
-        """Approve or reject a pending action"""
-        # Find the approval request
-        request = None
-        for req in self._approval_queue:
-            if req.id == approval_id:
-                request = req
-                break
+    async def analyze_async(self, client_message: str, merchant_id: str = "unknown") -> str:
+        """Entry point for Client Side HTTP requests."""
+        session_id = str(uuid.uuid4())
         
+        # 1. Initialize session with the raw message
+        self._sessions[session_id] = {
+            "session_id": session_id,
+            "status": HealingStatus.ANALYZING,
+            "client_message": client_message,
+            "progress": 0,
+            "created_at": datetime.now()
+        }
+
+        # 2. Convert raw message into a structured Ticket for the Graph
+        ticket_models = [SupportTicket(
+            id=str(uuid.uuid4()),
+            merchant_id=merchant_id,
+            subject="Client-Initiated Support",
+            description=client_message,
+            migration_stage=MigrationStage.UNKNOWN,
+            priority="medium"
+        )]
+
+        # 3. Trigger background workflow
+        asyncio.create_task(self._run_analysis_workflow(session_id, ticket_models, []))
+        return session_id
+
+    async def _run_analysis_workflow(self, session_id: str, ticket_models: List[SupportTicket], error_models: List[ErrorLog]):
+        """Background task to run the analysis workflow."""
+        try:
+            # Initialize state
+            initial_state = create_initial_state(session_id, ticket_models, error_models)
+            
+            # Use the compiled graph with global memory and unique thread_id
+            app = compile_support_agent(memory)
+            config = {"configurable": {"thread_id": session_id}}
+            
+            # Execute the graph until it hits the interrupt
+            await app.ainvoke(initial_state, config=config)
+            
+            # Retrieve the state where the graph paused or completed
+            snapshot = await app.aget_state(config)
+            state = snapshot.values
+            
+            # Update session with graph state
+            self._sessions[session_id].update(state)
+            self._sessions[session_id]["status"] = state.get("status", HealingStatus.AWAITING_APPROVAL)
+            
+            # Check if approval is required
+            if state.get("requires_human_approval"):
+                self._add_to_approval_queue(session_id, state)
+                self._metrics["human_escalated"] += 1
+            else:
+                self._metrics["auto_resolved"] += 1
+                
+        except Exception as e:
+            self._sessions[session_id]["status"] = HealingStatus.FAILED
+            self._sessions[session_id]["error"] = str(e)
+
+    async def approve_action(self, approval_id: str, approved: bool, reviewer_notes: str = None, actual_resolution: str = None) -> Dict[str, Any]:
+        """Server-side approval: Resumes graph and marks as DISPATCHED."""
+        # 1. Locate the request in queue
+        request = next((r for r in self._approval_queue if r.id == approval_id), None)
         if not request:
             return {"success": False, "error": "Approval request not found"}
-        
-        # Update status
-        request.status = "approved" if approved else "rejected"
+
+        session_id = request.session_id
+        config = {"configurable": {"thread_id": session_id}}
+        app = compile_support_agent(memory)
+
+        if approved:
+            # 1. Immediately update internal session state to 'dispatched'
+            self._sessions[session_id]["status"] = HealingStatus.DISPATCHED
+            self._sessions[session_id]["dispatched_at"] = datetime.now()
+            
+            # 2. Update graph state to approved and DISPATCHED
+            await app.aupdate_state(config, {"approval_status": "approved", "status": HealingStatus.DISPATCHED})
+            
+            # 3. Resume graph execution to trigger LEARN node
+            await app.ainvoke(None, config=config)
+            request.status = "approved"
+            
+            # 4. Check if learning occurred and update metrics
+            final_snapshot = await app.aget_state(config)
+            final_state = final_snapshot.values
+            if final_state.get("is_learning_candidate") and final_state.get("approval_status") == "approved":
+                self._metrics["learning_events"] += 1
+            
+            # 5. Update session with final state from graph
+            self._sessions[session_id].update(final_state)
+            self._sessions[session_id]["status"] = HealingStatus.DISPATCHED  # Ensure it stays DISPATCHED
+            
+            return {"success": True, "message": "Solution dispatched to client.", "status": "dispatched", "session_id": session_id}
+        else:
+            # Mark as rejected - update both graph and session
+            await app.aupdate_state(config, {"approval_status": "rejected", "status": HealingStatus.FAILED})
+            request.status = "rejected"
+            
+            # Update session status immediately
+            self._sessions[session_id]["status"] = HealingStatus.FAILED
+            self._sessions[session_id]["rejection_reason"] = reviewer_notes
+
         request.reviewer_notes = reviewer_notes
         
-        # Get session state
-        state = self._sessions.get(request.session_id)
-        if not state:
-            return {"success": False, "error": "Session not found"}
+        # Update session with final state
+        final_snapshot = await app.aget_state(config)
+        self._sessions[session_id].update(final_snapshot.values)
         
-        # Update state
-        state["approval_status"] = "approved" if approved else "rejected"
-        
-        # If approved and is learning candidate, run learning step
-        if approved and state.get("is_learning_candidate", False):
-            state = await nodes.learn_node(state)
-            self._metrics["learning_events"] += 1
-        
-        return {
-            "success": True,
-            "status": request.status,
-            "session_id": request.session_id
-        }
+        return {"success": True, "status": request.status, "session_id": session_id}
     
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """Get a session by ID"""
+        """Get a session by ID - formatted for frontend"""
         state = self._sessions.get(session_id)
         if not state:
             return None
         
         return {
+            "id": session_id,  # Frontend expects 'id'
             "session_id": session_id,
             "status": state.get("status", HealingStatus.OBSERVING).value,
+            "started_at": datetime.now().isoformat(),  # Placeholder for frontend
             "is_systemic": state.get("is_systemic", False),
             "requires_approval": state.get("requires_human_approval", False),
             "approval_status": state.get("approval_status", "pending"),

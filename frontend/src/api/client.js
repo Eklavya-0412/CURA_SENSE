@@ -207,3 +207,47 @@ export async function getAgentMetrics() {
 
     return response.json();
 }
+
+// ============ CLIENT/MERCHANT API ============
+
+/**
+ * Submit a support issue from the merchant portal
+ * @param {string} message - The support issue description
+ * @param {string} merchantId - The merchant's ID
+ * @returns {Promise<{session_id: string, status: string}>}
+ */
+export async function submitSupportIssue(message, merchantId = 'unknown') {
+    const response = await fetch(`${API_BASE_URL}/agent/submit`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            message,
+            merchant_id: merchantId
+        }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to submit support issue');
+    }
+
+    return response.json();
+}
+
+/**
+ * Poll for resolution status from the merchant portal
+ * @param {string} sessionId - The session ID returned from submitSupportIssue
+ * @returns {Promise<{status: string, message?: string, response?: string}>}
+ */
+export async function pollForResolution(sessionId) {
+    const response = await fetch(`${API_BASE_URL}/agent/client/poll/${sessionId}`);
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to check resolution status');
+    }
+
+    return response.json();
+}

@@ -50,9 +50,84 @@ class ApprovalDecision(BaseModel):
     actual_resolution: Optional[str] = None
 
 
+class ClientSubmission(BaseModel):
+    """Client/Merchant submission of a support issue"""
+    message: str
+    merchant_id: str = "unknown"
+
+
 # ============ Router ============
 
 router = APIRouter(prefix="/agent", tags=["Support Agent"])
+
+
+@router.post("/submit")
+async def client_submit_problem(request: ClientSubmission):
+    """
+    Client Side HTTP: Merchant sends their issue.
+    
+    This endpoint is used by merchants (clients) to submit support problems.
+    The AI will analyze the issue and queue it for human approval before
+    sending a response back to the merchant.
+    
+    Returns a session_id that can be used to poll for the resolution.
+    """
+    session_id = await support_agent.analyze_async(request.message, request.merchant_id)
+    return {"session_id": session_id, "status": "processing"}
+
+
+@router.get("/client/poll/{session_id}")
+async def client_poll_resolution(session_id: str):
+    """
+    Client Side HTTP: Merchant polls to see if support approved a response.
+    
+    This endpoint is called by the merchant UI to check if their issue
+    has been resolved and dispatched by the support team.
+    
+    Returns:
+    - status: "pending" while waiting for support review
+    - status: "resolved" with the response when approved
+    """
+    session = support_agent.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Get the raw session data for status check
+    raw_session = support_agent._sessions.get(session_id)
+    if not raw_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    status = raw_session.get("status")
+    
+    # Handle HealingStatus enum comparison
+    if hasattr(status, 'value'):
+        status_value = status.value
+    else:
+        status_value = str(status)
+    
+    # Hide internal reasoning/risk from the client until DISPATCHED
+    if status_value != "dispatched":
+        return {
+            "status": "pending", 
+            "message": "Support is reviewing your request...",
+            "session_status": status_value
+        }
+    
+    # Get proposed action response
+    proposed_action = raw_session.get("proposed_action")
+    if proposed_action:
+        if hasattr(proposed_action, 'draft_content'):
+            response_content = proposed_action.draft_content
+        else:
+            response_content = proposed_action.get("draft_content", "")
+    else:
+        response_content = "Your issue has been resolved."
+    
+    return {
+        "status": "resolved",
+        "response": response_content,
+        "dispatched_at": raw_session.get("dispatched_at", "").isoformat() if raw_session.get("dispatched_at") else None
+    }
 
 
 @router.post("/analyze", response_model=AgentOutput)
@@ -184,3 +259,130 @@ async def get_metrics():
     - Pending approvals count
     """
     return support_agent.get_metrics()
+
+
+# ============ Merchant Portal Endpoints ============
+
+class MerchantIssue(BaseModel):
+    """Merchant issue submission"""
+    message: str
+    merchant_id: str
+
+
+@router.post("/merchant/submit")
+async def merchant_submit(request: MerchantIssue):
+    """
+    Merchant submits their problem. Returns a session_id for polling.
+    
+    This is the entry point for the Merchant Portal (Port 3000).
+    The merchant describes their issue and receives a session ID to track progress.
+    """
+    session_id = await support_agent.analyze_async(
+        client_message=request.message,
+        merchant_id=request.merchant_id
+    )
+    return {"session_id": session_id, "status": "processing"}
+
+
+@router.get("/merchant/poll/{session_id}")
+async def merchant_poll(session_id: str):
+    """
+    Merchant polls for the APPROVED solution.
+    
+    This endpoint only returns the solution when status is DISPATCHED.
+    Otherwise, it returns a pending status to keep the merchant waiting.
+    """
+    session = support_agent.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Get the raw session data for status check
+    raw_session = support_agent._sessions.get(session_id)
+    if not raw_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    status = raw_session.get("status")
+    
+    # Handle HealingStatus enum comparison
+    if hasattr(status, 'value'):
+        status_value = status.value
+    else:
+        status_value = str(status)
+    
+    # Crucial: Only return the solution if status is DISPATCHED
+    if status_value == "dispatched":
+        # Pull the final drafted text from the session state
+        proposed_action = raw_session.get("proposed_action")
+        if proposed_action:
+            if hasattr(proposed_action, 'draft_content'):
+                solution = proposed_action.draft_content
+            else:
+                solution = proposed_action.get("draft_content", "No solution drafted.")
+        else:
+            solution = "Your issue has been resolved."
+        
+        return {
+            "status": "resolved",
+            "solution": solution
+        }
+    
+    return {
+        "status": "pending",
+        "message": "Support team is reviewing your request...",
+        "session_status": status_value
+    }
+
+
+@router.get("/merchant/view/{session_id}")
+async def merchant_view(session_id: str):
+    """
+    Returns ONLY the final response to the merchant.
+    Filters out all 'thinking', 'diagnoses', and 'reasoning'.
+    
+    This is the boundary control endpoint - merchants never see:
+    - AI reasoning
+    - Risk assessments
+    - Confidence scores
+    - Internal explanations
+    
+    They only see the approved solution when status is DISPATCHED.
+    """
+    session = support_agent.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    
+    # Get the raw session data
+    full_state = support_agent._sessions.get(session_id)
+    if not full_state:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    
+    status = full_state.get("status")
+    
+    # Handle HealingStatus enum comparison
+    if hasattr(status, 'value'):
+        status_value = status.value
+    else:
+        status_value = str(status)
+    
+    # Check if the support team has dispatched the fix
+    if status_value == "dispatched":
+        action = full_state.get("proposed_action")
+        
+        if action:
+            if hasattr(action, 'draft_content'):
+                solution = action.draft_content
+            else:
+                solution = action.get("draft_content", "Check documentation for fix.")
+        else:
+            solution = "Your issue has been resolved. Please check our documentation for details."
+        
+        return {
+            "status": "resolved",
+            "message": "A resolution has been approved by our engineering team.",
+            "solution": solution
+        }
+    
+    return {
+        "status": "processing",
+        "message": "Our automated agent is currently investigating the root cause. Support will review shortly."
+    }

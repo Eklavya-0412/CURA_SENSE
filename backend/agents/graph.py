@@ -7,6 +7,7 @@ Adapted from self-healing-framework architecture:
 """
 
 from typing import TypedDict, List, Optional, Annotated
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
@@ -200,9 +201,12 @@ def build_support_agent_graph() -> StateGraph:
     workflow.add_edge("diagnose", "assess_risk")
     workflow.add_edge("assess_risk", "decide_action")
     
-    # Conditional edge: require approval or auto-proceed
+    # After deciding action, ALWAYS explain first
+    workflow.add_edge("decide_action", "explain")
+    
+    # Conditional edge: require approval or auto-proceed (AFTER explain)
     workflow.add_conditional_edges(
-        "decide_action",
+        "explain",
         should_require_approval,
         {
             "require_approval": "wait_for_approval",
@@ -210,23 +214,12 @@ def build_support_agent_graph() -> StateGraph:
         }
     )
     
-    # From approval wait, check status
-    workflow.add_conditional_edges(
-        "wait_for_approval",
-        check_approval_status,
-        {
-            "approved": "act",
-            "rejected": END,
-            "waiting": "wait_for_approval"  # Loop back (in practice, this would be async)
-        }
-    )
+    # From approval wait, end execution - will be resumed by approve_action API
+    workflow.add_edge("wait_for_approval", END)
     
-    # After act, always explain
-    workflow.add_edge("act", "explain")
-    
-    # After explain, conditionally learn
+    # After act, conditionally learn
     workflow.add_conditional_edges(
-        "explain",
+        "act",
         should_learn,
         {
             "learn": "learn",
@@ -240,7 +233,15 @@ def build_support_agent_graph() -> StateGraph:
     return workflow
 
 
-def compile_support_agent():
-    """Compile the support agent graph for execution"""
-    graph = build_support_agent_graph()
-    return graph.compile()
+
+
+def compile_support_agent(memory):
+    """Compile the support agent graph with the provided memory checkpointer."""
+    workflow = build_support_agent_graph()
+    
+    # interrupt_before=["wait_for_approval"] pauses execution when approval is needed
+    # This allows the approve_action API to resume the graph later
+    return workflow.compile(
+        checkpointer=memory,
+        interrupt_before=["wait_for_approval"]
+    )

@@ -4,28 +4,18 @@ import {
     FileText, Server, Shield, Brain, ChevronRight,
     ThumbsUp, ThumbsDown
 } from 'lucide-react';
-import { analyzeIssues, getAgentMetrics, getSessionHistory, getApprovalQueue, approveAction } from '../api/client';
+import { getAgentMetrics, getSessionHistory, getApprovalQueue, approveAction } from '../api/client';
 
 export default function AgentDashboard() {
     const [activeTab, setActiveTab] = useState('live');
     const [metrics, setMetrics] = useState(null);
     const [history, setHistory] = useState([]);
     const [queue, setQueue] = useState([]);
-    const [loading, setLoading] = useState(false);
-
-    // Live Analysis State
-    const [ticketInput, setTicketInput] = useState({
-        merchant_id: "MCH-1001",
-        subject: "Webhook failures",
-        description: "We are not receiving any webhook events for the last hour.",
-        migration_stage: "post-migration",
-        priority: "high"
-    });
     const [activeResult, setActiveResult] = useState(null);
 
     useEffect(() => {
         refreshData();
-        const interval = setInterval(refreshData, 30000); // Auto-refresh every 30s
+        const interval = setInterval(refreshData, 10000); // Auto-refresh every 10s
         return () => clearInterval(interval);
     }, []);
 
@@ -41,20 +31,6 @@ export default function AgentDashboard() {
             setQueue(q.items || []);
         } catch (error) {
             console.error("Failed to fetch data:", error);
-        }
-    };
-
-    const handleAnalyze = async () => {
-        setLoading(true);
-        setActiveResult(null);
-        try {
-            const result = await analyzeIssues([ticketInput]);
-            setActiveResult(result);
-            refreshData(); // Update history/queue
-        } catch (error) {
-            alert("Analysis failed: " + error.message);
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -130,78 +106,191 @@ export default function AgentDashboard() {
                 <main className="p-6">
                     {activeTab === 'live' && (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {/* Input Form */}
-                            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                                <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
-                                    <Activity className="w-5 h-5 text-indigo-500" />
-                                    Simulate Issue
-                                </h3>
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-                                        <input
-                                            type="text"
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
-                                            value={ticketInput.subject}
-                                            onChange={e => setTicketInput({ ...ticketInput, subject: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                                        <textarea
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition h-32"
-                                            value={ticketInput.description}
-                                            onChange={e => setTicketInput({ ...ticketInput, description: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-                                            <select
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none"
-                                                value={ticketInput.priority}
-                                                onChange={e => setTicketInput({ ...ticketInput, priority: e.target.value })}
-                                            >
-                                                <option value="low">Low</option>
-                                                <option value="medium">Medium</option>
-                                                <option value="high">High</option>
-                                                <option value="critical">Critical</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Stage</label>
-                                            <select
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none"
-                                                value={ticketInput.migration_stage}
-                                                onChange={e => setTicketInput({ ...ticketInput, migration_stage: e.target.value })}
-                                            >
-                                                <option value="pre-migration">Pre-Migration</option>
-                                                <option value="mid-migration">Mid-Migration</option>
-                                                <option value="post-migration">Post-Migration</option>
-                                            </select>
-                                        </div>
-                                    </div>
+                            {/* Active Problem Clusters - Left Column */}
+                            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                                    <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                                        <Activity className="w-4 h-4 text-indigo-500" />
+                                        Active Problem Clusters
+                                    </h3>
                                     <button
-                                        onClick={handleAnalyze}
-                                        disabled={loading}
-                                        className={`w-full py-2.5 rounded-lg font-medium text-white transition
-                                            ${loading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg'}
-                                        `}
+                                        onClick={refreshData}
+                                        className="text-xs text-indigo-600 hover:underline flex items-center gap-1"
                                     >
-                                        {loading ? 'Agent Thinking...' : 'Analyze Issue'}
+                                        <Server className="w-3 h-3" /> Refresh
                                     </button>
+                                </div>
+                                <div className="divide-y divide-gray-100 max-h-[600px] overflow-y-auto">
+                                    {history.length === 0 ? (
+                                        <div className="p-10 text-center text-gray-400 italic">
+                                            <Brain className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                                            No tickets found in queue.
+                                            <p className="text-xs mt-2">Run the ingestion script to load tickets.</p>
+                                        </div>
+                                    ) : (
+                                        history.map((session) => (
+                                            <div
+                                                key={session.session_id || session.id}
+                                                onClick={() => setActiveResult(session)}
+                                                className={`p-4 cursor-pointer transition hover:bg-indigo-50 
+                                                    ${activeResult?.session_id === session.session_id || activeResult?.id === session.id
+                                                        ? 'bg-indigo-50 border-l-4 border-indigo-500'
+                                                        : ''}`}
+                                            >
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <span className="text-sm font-bold text-gray-900 truncate max-w-[180px]">
+                                                        {session.diagnosis?.root_cause?.replace(/_/g, ' ').toUpperCase() || "Analyzing..."}
+                                                    </span>
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase 
+                                                        ${session.risk === 'high' || session.risk === 'critical'
+                                                            ? 'bg-red-100 text-red-600'
+                                                            : session.risk === 'medium'
+                                                                ? 'bg-yellow-100 text-yellow-600'
+                                                                : 'bg-gray-100 text-gray-600'}`}
+                                                    >
+                                                        {session.risk || 'Low'}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-gray-500 line-clamp-2">
+                                                    {session.explanation?.substring(0, 80) || "Processing..."}...
+                                                </p>
+                                                <div className="mt-2 flex items-center justify-between text-[10px] text-gray-400">
+                                                    <span className="font-mono">
+                                                        {(session.session_id || session.id)?.substring(0, 8)}
+                                                    </span>
+                                                    <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full
+                                                        ${session.status === 'dispatched' ? 'bg-green-100 text-green-600' :
+                                                            session.status === 'awaiting_approval' ? 'bg-orange-100 text-orange-600' :
+                                                                'bg-blue-100 text-blue-600'}`}
+                                                    >
+                                                        <Clock className="w-3 h-3" />
+                                                        {session.status?.replace(/_/g, ' ')}
+                                                    </span>
+                                                </div>
+                                                {session.requires_approval && session.status !== 'dispatched' && (
+                                                    <div className="mt-2 text-[10px] text-orange-600 flex items-center gap-1">
+                                                        <AlertTriangle className="w-3 h-3" />
+                                                        Requires human approval
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
                             </div>
 
-                            {/* Result Display */}
+                            {/* Result Display - Right Column */}
                             <div className="space-y-6">
                                 {activeResult ? (
-                                    <AgentResultCard result={activeResult} />
+                                    <div className="bg-white rounded-xl shadow-lg border border-indigo-100 overflow-hidden">
+                                        <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 text-white">
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <h3 className="text-lg font-bold">Session Details</h3>
+                                                    <p className="text-indigo-100 text-sm mt-1">
+                                                        {activeResult.diagnosis?.root_cause?.replace(/_/g, ' ') || "Analysis in progress"}
+                                                    </p>
+                                                </div>
+                                                <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded text-sm font-bold">
+                                                    {activeResult.diagnosis
+                                                        ? `${(activeResult.diagnosis.confidence * 100).toFixed(0)}% Confidence`
+                                                        : 'Processing...'}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-6 space-y-6">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="p-4 bg-gray-50 rounded-lg">
+                                                    <div className="text-xs text-gray-500 uppercase font-semibold mb-1">Root Cause</div>
+                                                    <div className="font-medium text-gray-900">
+                                                        {activeResult.diagnosis?.root_cause?.replace(/_/g, ' ') || "Pending"}
+                                                    </div>
+                                                </div>
+                                                <div className={`p-4 rounded-lg 
+                                                    ${activeResult.risk === 'high' || activeResult.risk === 'critical'
+                                                        ? 'bg-red-50 text-red-700'
+                                                        : 'bg-green-50 text-green-700'}`}
+                                                >
+                                                    <div className="text-xs uppercase font-semibold mb-1 opacity-75">Risk Level</div>
+                                                    <div className="font-medium capitalize">{activeResult.risk || 'Low'}</div>
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <h4 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                                                    <Brain className="w-4 h-4 text-indigo-500" />
+                                                    AI Reasoning (Internal Only)
+                                                </h4>
+                                                <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                                    {activeResult.explanation || "Processing..."}
+                                                </p>
+                                            </div>
+
+                                            <div className="flex gap-2 items-center text-xs text-gray-400">
+                                                <span>Session:</span>
+                                                <code className="bg-gray-100 px-2 py-1 rounded font-mono">
+                                                    {activeResult.session_id || activeResult.id}
+                                                </code>
+                                                <span className={`ml-auto px-2 py-1 rounded-full font-medium
+                                                    ${activeResult.status === 'dispatched' ? 'bg-green-100 text-green-700' :
+                                                        activeResult.status === 'awaiting_approval' ? 'bg-orange-100 text-orange-700' :
+                                                            'bg-blue-100 text-blue-700'}`}
+                                                >
+                                                    {activeResult.status?.replace(/_/g, ' ').toUpperCase()}
+                                                </span>
+                                            </div>
+
+                                            {/* Conditional Approval UI */}
+                                            {activeResult.status === 'awaiting_approval' && (
+                                                <div className="pt-4 border-t border-gray-100 space-y-4">
+                                                    <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg flex gap-3 text-yellow-800 text-sm">
+                                                        <AlertTriangle className="w-5 h-5 shrink-0" />
+                                                        <div>
+                                                            <span className="font-bold">Ready for Review: </span>
+                                                            AI has drafted a solution. Review and send to merchant or reject.
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex gap-3">
+                                                        <button
+                                                            onClick={() => handleApproval(activeResult.session_id || activeResult.id, true)}
+                                                            className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition shadow-md"
+                                                        >
+                                                            <ThumbsUp className="w-4 h-4" /> Send to Merchant
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleApproval(activeResult.session_id || activeResult.id, false)}
+                                                            className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition shadow-md"
+                                                        >
+                                                            <ThumbsDown className="w-4 h-4" /> Reject Fix
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Already dispatched/completed */}
+                                            {['dispatched', 'completed'].includes(activeResult.status) && (
+                                                <div className="p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg text-center font-medium flex items-center justify-center gap-2">
+                                                    <CheckCircle className="w-5 h-5" />
+                                                    Solution has been {activeResult.status === 'dispatched' ? 'sent to merchant' : 'completed'}.
+                                                </div>
+                                            )}
+
+                                            {/* Still analyzing */}
+                                            {['analyzing', 'diagnosing', 'observing', 'searching'].includes(activeResult.status) && (
+                                                <div className="p-4 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-center font-medium flex items-center justify-center gap-2">
+                                                    <Clock className="w-5 h-5 animate-pulse" />
+                                                    AI is still analyzing this issue...
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 ) : (
                                     <div className="h-full min-h-[400px] flex items-center justify-center bg-white rounded-xl border border-dashed border-gray-300 text-gray-400">
                                         <div className="text-center">
                                             <Brain className="w-12 h-12 mx-auto mb-2 opacity-20" />
-                                            <p>Ready to analyze</p>
+                                            <p>Select a ticket to view details</p>
+                                            <p className="text-xs mt-1">Click on any item in the left panel</p>
                                         </div>
                                     </div>
                                 )}
@@ -356,13 +445,13 @@ function ApprovalCard({ item, onApprove }) {
             <div className="bg-orange-50 px-6 py-4 border-b border-orange-100 flex justify-between items-center">
                 <span className="font-semibold text-orange-800 flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4" />
-                    Approval Request
+                    Approval Request - Pending Dispatch
                 </span>
                 <span className="text-xs text-orange-600">{new Date(item.created_at).toLocaleString()}</span>
             </div>
             <div className="p-6">
                 <div className="mb-4">
-                    <div className="text-sm font-medium text-gray-500 mb-1">Proposed Action</div>
+                    <div className="text-sm font-medium text-gray-500 mb-1">Proposed Response to Merchant</div>
                     <div className="bg-gray-50 p-3 rounded text-sm font-mono border border-gray-200">
                         {item.proposed_action.draft_content}
                     </div>
@@ -382,7 +471,7 @@ function ApprovalCard({ item, onApprove }) {
                         onClick={() => onApprove(item.id, true)}
                         className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition"
                     >
-                        <ThumbsUp className="w-4 h-4" /> Approve
+                        <ThumbsUp className="w-4 h-4" /> Send Resolution to Merchant
                     </button>
                     <button
                         onClick={() => onApprove(item.id, false)}
