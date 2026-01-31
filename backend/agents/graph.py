@@ -59,6 +59,7 @@ class SupportAgentState(TypedDict):
     
     # Step 7: Act (Draft)
     proposed_action: Optional[ProposedAction]
+    fix_data: Optional[dict]  # Structured fix data containing type, content, etc.
     
     # Step 8: Explanation
     explanation: str
@@ -97,6 +98,7 @@ def create_initial_state(
         action_type=None,
         requires_human_approval=False,
         proposed_action=None,
+        fix_data=None,
         explanation="",
         approval_status="pending",
         is_learning_candidate=False,
@@ -201,8 +203,10 @@ def build_support_agent_graph() -> StateGraph:
     workflow.add_edge("diagnose", "assess_risk")
     workflow.add_edge("assess_risk", "decide_action")
     
-    # After deciding action, ALWAYS explain first
-    workflow.add_edge("decide_action", "explain")
+    # NEW FLOW: decide -> act (Draft) -> explain -> check approval
+    # We generate the draft FIRST so it can be reviewed
+    workflow.add_edge("decide_action", "act")
+    workflow.add_edge("act", "explain")
     
     # Conditional edge: require approval or auto-proceed (AFTER explain)
     workflow.add_conditional_edges(
@@ -210,22 +214,13 @@ def build_support_agent_graph() -> StateGraph:
         should_require_approval,
         {
             "require_approval": "wait_for_approval",
-            "auto_proceed": "act"
+            "auto_proceed": "learn"  # Skip wait, go directly to learn
         }
     )
     
-    # From approval wait, end execution - will be resumed by approve_action API
-    workflow.add_edge("wait_for_approval", END)
-    
-    # After act, conditionally learn
-    workflow.add_conditional_edges(
-        "act",
-        should_learn,
-        {
-            "learn": "learn",
-            "skip_learning": END
-        }
-    )
+    # From approval wait, usually we stop here until API resumes
+    # When API resumes (approved), we go to learn
+    workflow.add_edge("wait_for_approval", "learn")
     
     # After learn, end
     workflow.add_edge("learn", END)

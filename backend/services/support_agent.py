@@ -364,9 +364,34 @@ class SupportAgentService:
         if not state:
             return None
         
+        # Find the approval_id for this session
+        approval_request = next(
+            (r for r in self._approval_queue if r.session_id == session_id),
+            None
+        )
+        approval_id = approval_request.id if approval_request else None
+        
+        # Get the proposed action / fix content
+        proposed_action = state.get("proposed_action")
+        if proposed_action:
+            if hasattr(proposed_action, 'draft_content'):
+                recommended_action = proposed_action.draft_content
+            else:
+                recommended_action = proposed_action.get("draft_content", "")
+        else:
+            recommended_action = state.get("explanation", "AI is generating a solution...")
+        
+        # Get action type
+        action_type = state.get("action_type")
+        if action_type and hasattr(action_type, 'value'):
+            action_type_str = action_type.value
+        else:
+            action_type_str = str(action_type) if action_type else None
+        
         return {
             "id": session_id,  # Frontend expects 'id'
             "session_id": session_id,
+            "approval_id": approval_id,  # Needed for approval endpoint
             "status": state.get("status", HealingStatus.OBSERVING).value,
             "started_at": datetime.now().isoformat(),  # Placeholder for frontend
             "is_systemic": state.get("is_systemic", False),
@@ -378,7 +403,10 @@ class SupportAgentService:
             } if state.get("diagnosis") else None,
             "risk": state["risk_assessment"].risk_level.value if state.get("risk_assessment") else None,
             "explanation": state.get("explanation", ""),
-            # New flags for dashboard alerts
+            "recommended_action": recommended_action,  # The fix content
+            "action_type": action_type_str,  # e.g., "provide_setup_instructions"
+            "fix_data": state.get("fix_data"),  # Structured fix data from act_node
+            # Flags for dashboard alerts
             "is_emergency": state.get("is_emergency", False),
             "abnormal_pattern": state.get("abnormal_pattern", False),
             "volume_spike": state.get("volume_spike", False),

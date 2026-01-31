@@ -254,11 +254,69 @@ export default function AgentDashboard() {
                                                 </p>
                                             </div>
 
+                                            {/* AI Proposed Solution - shows the fix */}
+                                            {activeResult.recommended_action && (
+                                                <div>
+                                                    <h4 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                                                        <CheckCircle className="w-4 h-4 text-green-500" />
+                                                        AI Proposed Solution
+                                                        {activeResult.action_type && (
+                                                            <span className="ml-auto text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full">
+                                                                {activeResult.action_type.replace(/_/g, ' ')}
+                                                            </span>
+                                                        )}
+                                                    </h4>
+                                                    <div className="bg-slate-900 text-green-400 p-4 rounded-lg border border-slate-700 font-mono text-sm whitespace-pre-wrap overflow-x-auto">
+                                                        {(() => {
+                                                            // Try to parse and format JSON fix data
+                                                            try {
+                                                                const fixData = JSON.parse(activeResult.recommended_action);
+                                                                return (
+                                                                    <div className="space-y-3">
+                                                                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                                                                            <span className={`px-2 py-0.5 rounded ${fixData.fix_type === 'code_change' ? 'bg-blue-500/20 text-blue-300' :
+                                                                                    fixData.fix_type === 'cli_command' ? 'bg-purple-500/20 text-purple-300' :
+                                                                                        'bg-amber-500/20 text-amber-300'
+                                                                                }`}>
+                                                                                {fixData.fix_type?.replace(/_/g, ' ').toUpperCase()}
+                                                                            </span>
+                                                                            {fixData.file_path && (
+                                                                                <span className="text-slate-500">📁 {fixData.file_path}</span>
+                                                                            )}
+                                                                            {fixData.estimated_time && (
+                                                                                <span className="text-slate-500">⏱️ {fixData.estimated_time}</span>
+                                                                            )}
+                                                                        </div>
+                                                                        <pre className="text-green-400">{fixData.content}</pre>
+                                                                        {fixData.explanation && (
+                                                                            <p className="text-slate-400 text-xs border-t border-slate-700 pt-2">
+                                                                                💡 {fixData.explanation}
+                                                                            </p>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            } catch {
+                                                                // If not JSON, display as plain text
+                                                                return activeResult.recommended_action;
+                                                            }
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                            )}
+
                                             <div className="flex gap-2 items-center text-xs text-gray-400">
                                                 <span>Session:</span>
                                                 <code className="bg-gray-100 px-2 py-1 rounded font-mono">
                                                     {activeResult.session_id || activeResult.id}
                                                 </code>
+                                                {activeResult.approval_id && (
+                                                    <>
+                                                        <span>Approval ID:</span>
+                                                        <code className="bg-gray-100 px-2 py-1 rounded font-mono">
+                                                            {activeResult.approval_id}
+                                                        </code>
+                                                    </>
+                                                )}
                                                 <span className={`ml-auto px-2 py-1 rounded-full font-medium
                                                     ${activeResult.status === 'dispatched' ? 'bg-green-100 text-green-700' :
                                                         activeResult.status === 'awaiting_approval' ? 'bg-orange-100 text-orange-700' :
@@ -267,6 +325,7 @@ export default function AgentDashboard() {
                                                     {activeResult.status?.replace(/_/g, ' ').toUpperCase()}
                                                 </span>
                                             </div>
+
 
                                             {/* Conditional Approval UI */}
                                             {activeResult.status === 'awaiting_approval' && (
@@ -280,13 +339,13 @@ export default function AgentDashboard() {
                                                     </div>
                                                     <div className="flex gap-3">
                                                         <button
-                                                            onClick={() => handleApproval(activeResult.session_id || activeResult.id, true)}
+                                                            onClick={() => handleApproval(activeResult.approval_id || activeResult.session_id || activeResult.id, true)}
                                                             className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition shadow-md"
                                                         >
                                                             <ThumbsUp className="w-4 h-4" /> Send to Merchant
                                                         </button>
                                                         <button
-                                                            onClick={() => handleApproval(activeResult.session_id || activeResult.id, false)}
+                                                            onClick={() => handleApproval(activeResult.approval_id || activeResult.session_id || activeResult.id, false)}
                                                             className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition shadow-md"
                                                         >
                                                             <ThumbsDown className="w-4 h-4" /> Reject Fix

@@ -336,7 +336,7 @@ async def merchant_poll(session_id: str):
 @router.get("/merchant/view/{session_id}")
 async def merchant_view(session_id: str):
     """
-    Returns ONLY the final response to the merchant.
+    Returns ONLY the final resolution to the merchant.
     Filters out all 'thinking', 'diagnoses', and 'reasoning'.
     
     This is the boundary control endpoint - merchants never see:
@@ -345,8 +345,14 @@ async def merchant_view(session_id: str):
     - Confidence scores
     - Internal explanations
     
-    They only see the approved solution when status is DISPATCHED.
+    When status is DISPATCHED, returns structured fix data:
+    - fix_type: "code_change" | "cli_command" | "manual_steps"
+    - file_path: For code changes only
+    - solution: The actual fix content
+    - description: Why this fix works
     """
+    import json
+    
     session = support_agent.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -369,20 +375,48 @@ async def merchant_view(session_id: str):
         action = full_state.get("proposed_action")
         
         if action:
+            # Get draft content from the action
             if hasattr(action, 'draft_content'):
-                solution = action.draft_content
+                draft_content = action.draft_content
             else:
-                solution = action.get("draft_content", "Check documentation for fix.")
+                draft_content = action.get("draft_content", "{}")
+            
+            # Try to parse as JSON (new structured format)
+            try:
+                fix_data = json.loads(draft_content)
+                return {
+                    "status": "resolved",
+                    "type": fix_data.get("fix_type", "manual_steps"),
+                    "file": fix_data.get("file_path"),
+                    "solution": fix_data.get("content", "See solution details below."),
+                    "description": fix_data.get("explanation", "Fix has been approved by our team."),
+                    "estimated_time": fix_data.get("estimated_time", "5-10 minutes"),
+                    "risk_level": fix_data.get("risk_level", "low")
+                }
+            except (json.JSONDecodeError, TypeError):
+                # Fallback for older unstructured responses
+                return {
+                    "status": "resolved",
+                    "type": "manual_steps",
+                    "file": None,
+                    "solution": draft_content,
+                    "description": "A resolution has been approved by our engineering team.",
+                    "estimated_time": "Unknown",
+                    "risk_level": "medium"
+                }
         else:
-            solution = "Your issue has been resolved. Please check our documentation for details."
-        
-        return {
-            "status": "resolved",
-            "message": "A resolution has been approved by our engineering team.",
-            "solution": solution
-        }
+            return {
+                "status": "resolved",
+                "type": "manual_steps",
+                "file": None,
+                "solution": "Your issue has been resolved. Please check our documentation for details.",
+                "description": "Fix has been applied.",
+                "estimated_time": "N/A",
+                "risk_level": "low"
+            }
     
+    # Status is still in review
     return {
-        "status": "processing",
-        "message": "Our automated agent is currently investigating the root cause. Support will review shortly."
+        "status": "in_review",
+        "message": "Our automated agent is analyzing the issue. Support will review and approve a fix shortly."
     }

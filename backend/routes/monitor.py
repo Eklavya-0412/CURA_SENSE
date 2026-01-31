@@ -188,7 +188,7 @@ async def report_live_error(
     
     # 4. Trigger AI analysis asynchronously
     session_id = await support_agent.analyze_async(
-        client_message=ticket.description,
+        client_message=ticket["description"],
         merchant_id=signal.merchant_id
     )
     
@@ -197,7 +197,7 @@ async def report_live_error(
     
     return {
         "status": "received",
-        "ticket_id": ticket.id,
+        "ticket_id": ticket["id"],
         "session_id": session_id,
         "is_spike": is_spike,
         "spike_count": spike_count if is_spike else None,
@@ -224,12 +224,12 @@ async def report_batch_errors(
         ticket = create_ticket_from_signal(signal, is_spike, spike_count)
         
         session_id = await support_agent.analyze_async(
-            client_message=ticket.description,
+            client_message=ticket["description"],
             merchant_id=signal.merchant_id
         )
         
         results.append({
-            "ticket_id": ticket.id,
+            "ticket_id": ticket["id"],
             "session_id": session_id,
             "is_spike": is_spike
         })

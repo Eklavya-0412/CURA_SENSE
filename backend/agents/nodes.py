@@ -659,13 +659,26 @@ def decide_action_node(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-# ============ STEP 7: ACT (DRAFT ONLY) ============
+# ============ STEP 7: ACT (SELF-HEALING CODE GENERATION) ============
 
 async def act_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    # 1. ADD THE GUARD: Check if we are allowed to act
-    # If the session requires approval and hasn't received it, exit early.
-    if state.get("requires_human_approval") and state.get("approval_status") != "approved":
-        return state
+    """
+    STEP 7 — ACT (Self-Healing Code Generation)
+    
+    Generates actionable fixes:
+    - Code changes with file paths
+    - CLI commands
+    - Manual step-by-step instructions
+    
+    All fixes are stored as JSON for the merchant popup.
+    """
+    import json
+    
+    import json
+    
+    # 1. ALLOW DRAFT GENERATION
+    # We remove the guard so the AI *generates* the proposal for the human to review.
+    # The 'status' check at the end ensures we don't proceed to execution if not approved.
 
     action_type = state.get("action_type")
     diagnosis = state.get("diagnosis")
@@ -678,14 +691,18 @@ async def act_node(state: Dict[str, Any]) -> Dict[str, Any]:
             **state,
             "proposed_action": ProposedAction(
                 action_type=ActionType.REQUEST_HUMAN_REVIEW,
-                draft_content="Unable to generate action - missing diagnosis.",
+                draft_content=json.dumps({
+                    "fix_type": "manual_steps",
+                    "content": "Unable to generate fix - missing diagnosis.",
+                    "explanation": "The AI could not determine the root cause."
+                }),
                 target_audience="support",
                 steps=[]
             ),
-            "status": HealingStatus.ACTING
+            "status": state.get("status", HealingStatus.ACTING)
         }
     
-    # 2. Extract context for the prompt
+    # 2. Extract context
     if clusters:
         main_cluster = max(clusters, key=lambda c: len(c.issues))
         issue_summary = main_cluster.representative_text[:500]
@@ -694,59 +711,125 @@ async def act_node(state: Dict[str, Any]) -> Dict[str, Any]:
     
     knowledge_context = "\n".join([ks.content[:200] for ks in knowledge_sources[:2]])
     
-    # 3. Select Template based on Action Type
+    # 3. Generate Self-Healing Fix with structured JSON output
     llm = get_llm()
-    if action_type == ActionType.PROVIDE_SETUP_INSTRUCTIONS:
-        prompt = ChatPromptTemplate.from_template("""
-            Generate step-by-step setup instructions for a merchant to fix this issue:
-            Issue: {issue}
-            Root Cause: {root_cause}
-            Relevant Documentation: {knowledge}
-            Provide clear, numbered steps. Be specific and actionable.
-        """)
-        target = "merchant"
-    elif action_type == ActionType.ESCALATE_TO_ENGINEERING:
-        prompt = ChatPromptTemplate.from_template("""
-            Draft an engineering escalation for this platform issue:
-            Issue: {issue}
-            Root Cause: {root_cause}
-            Evidence: {knowledge}
-            Include: Summary, Impact, Recommended Investigation Steps
-        """)
+    
+    # Unified prompt for all action types - generates structured fix data
+    fix_prompt = ChatPromptTemplate.from_template("""
+You are an Automated Self-Healing Engineer for an e-commerce migration platform.
+
+ISSUE: {issue}
+ROOT CAUSE: {root_cause}
+ACTION TYPE: {action_type}
+RELEVANT DOCUMENTATION:
+{knowledge}
+
+TASK: Provide a precise technical fix for this issue.
+
+Rules:
+1. If the fix is a CODE CHANGE, provide the exact file path and code snippet.
+2. If the fix requires a TERMINAL COMMAND (npm, API call, config change), provide the exact CLI command.
+3. If you cannot provide code, provide clear MANUAL STEPS with numbered instructions.
+4. Be specific and actionable. Do NOT be vague.
+
+Examples of good fixes:
+- Code: "Add `webhookSecret: process.env.WEBHOOK_SECRET` to config.js line 45"
+- CLI: "curl -X POST https://api.example.com/webhooks/revalidate -H 'Authorization: Bearer $TOKEN'"
+- Manual: "1. Go to Dashboard > Settings > Webhooks\\n2. Click 'Regenerate Secret'\\n3. Copy new secret to .env"
+
+Respond in this exact JSON format (no markdown, just raw JSON):
+{{
+  "fix_type": "code_change" or "cli_command" or "manual_steps",
+  "file_path": "path/to/file.ext (only for code_change, otherwise null)",
+  "content": "The actual code snippet, CLI command, or numbered steps here",
+  "explanation": "Brief explanation of why this fix resolves the issue",
+  "estimated_time": "5 minutes (estimated time to apply fix)",
+  "risk_level": "low" or "medium" or "high"
+}}
+""")
+    
+    # Determine target audience
+    if action_type == ActionType.ESCALATE_TO_ENGINEERING:
         target = "engineering"
+    elif action_type == ActionType.PROVIDE_SETUP_INSTRUCTIONS:
+        target = "merchant"
     else:
-        prompt = ChatPromptTemplate.from_template("""
-            Draft a support response for this issue:
-            Issue: {issue}
-            Root Cause: {root_cause}
-            Reference: {knowledge}
-            Be helpful, acknowledge the issue, and provide next steps.
-        """)
         target = "support"
     
-    # 4. Generate the draft
-    chain = prompt | llm | StrOutputParser()
     try:
-        draft = await chain.ainvoke({
+        chain = fix_prompt | llm | StrOutputParser()
+        response = await chain.ainvoke({
             "issue": issue_summary,
             "root_cause": diagnosis.root_cause.value,
-            "knowledge": knowledge_context if knowledge_context else "No additional context."
+            "action_type": action_type.value if hasattr(action_type, 'value') else str(action_type),
+            "knowledge": knowledge_context if knowledge_context else "No additional documentation available."
         })
+        
+        # Parse JSON response - clean up if needed
+        response = response.strip()
+        if response.startswith("```"):
+            response = response.split("```")[1]
+            if response.startswith("json"):
+                response = response[4:]
+        response = response.strip()
+        
+        try:
+            fix_data = json.loads(response)
+        except json.JSONDecodeError:
+            # Fallback if JSON parsing fails
+            fix_data = {
+                "fix_type": "manual_steps",
+                "file_path": None,
+                "content": response,
+                "explanation": "AI-generated resolution steps",
+                "estimated_time": "10 minutes",
+                "risk_level": "low"
+            }
+        
+        # Ensure all required fields exist
+        fix_data.setdefault("fix_type", "manual_steps")
+        fix_data.setdefault("file_path", None)
+        fix_data.setdefault("content", "No fix content generated")
+        fix_data.setdefault("explanation", "No explanation provided")
+        fix_data.setdefault("estimated_time", "Unknown")
+        fix_data.setdefault("risk_level", "medium")
+        
+        draft_content = json.dumps(fix_data)
+        
     except Exception as e:
-        draft = f"Error generating draft: {str(e)}"
+        # Error fallback
+        fix_data = {
+            "fix_type": "manual_steps",
+            "file_path": None,
+            "content": f"Error generating fix: {str(e)}. Please review manually.",
+            "explanation": "The AI encountered an error during fix generation.",
+            "estimated_time": "N/A",
+            "risk_level": "unknown"
+        }
+        draft_content = json.dumps(fix_data)
     
-    # 5. Return updated state
+    # 4. Create ProposedAction with structured fix data
     proposed_action = ProposedAction(
         action_type=action_type,
-        draft_content=draft,
+        draft_content=draft_content,  # JSON string for parsing in UI
         target_audience=target,
         steps=[]
     )
     
+    # 5. DETERMINE STATUS
+    # If waiting for approval, KEEP as AWAITING_APPROVAL.
+    # Otherwise set to ACTING/COMPLETED.
+    current_status = state.get("status")
+    new_status = HealingStatus.ACTING
+    
+    if current_status == HealingStatus.AWAITING_APPROVAL:
+        new_status = HealingStatus.AWAITING_APPROVAL
+
     return {
         **state,
         "proposed_action": proposed_action,
-        "status": HealingStatus.ACTING # Now this status is only set when acting actually occurs
+        "fix_data": fix_data,  # Also store as dict for easy access
+        "status": new_status
     }
 
 
