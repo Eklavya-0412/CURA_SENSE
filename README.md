@@ -1,4 +1,4 @@
-Here is a comprehensive `README.md` for your GitHub repository, tailored to the **CuraSense** (MigraGuard) architecture found in your uploaded files.
+Here is a comprehensive `README.md` for your GitHub repository, tailored to the **CuraSense** architecture found in your uploaded files.
 
 ---
 
