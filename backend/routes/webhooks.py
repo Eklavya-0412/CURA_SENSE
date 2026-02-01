@@ -215,6 +215,7 @@ async def receive_error_event(error: ErrorEvent, request: Request):
     # Also store the structured ticket for history
     support_agent._sessions[session_id]["original_ticket"] = ticket.model_dump()
     support_agent._sessions[session_id]["auto_generated"] = True
+    support_agent._sessions[session_id]["merchant_id"] = error.merchant_id
     
     return {
         "status": "received",
@@ -239,6 +240,7 @@ async def receive_checkout_failure(failure: CheckoutFailure):
     
     support_agent._sessions[session_id]["original_ticket"] = ticket.model_dump()
     support_agent._sessions[session_id]["auto_generated"] = True
+    support_agent._sessions[session_id]["merchant_id"] = failure.merchant_id
     support_agent._sessions[session_id]["critical"] = True
     
     return {
@@ -264,6 +266,7 @@ async def receive_api_failure(failure: APIFailure):
     
     support_agent._sessions[session_id]["original_ticket"] = ticket.model_dump()
     support_agent._sessions[session_id]["auto_generated"] = True
+    support_agent._sessions[session_id]["merchant_id"] = failure.merchant_id
     
     return {
         "status": "received",
@@ -311,6 +314,7 @@ async def receive_webhook_failure(failure: WebhookFailure):
     
     support_agent._sessions[session_id]["original_ticket"] = ticket.model_dump()
     support_agent._sessions[session_id]["auto_generated"] = True
+    support_agent._sessions[session_id]["merchant_id"] = failure.merchant_id
     
     return {
         "status": "received",

@@ -338,7 +338,8 @@ class SupportAgentService:
             
             # 5. Update session with final state from graph
             self._sessions[session_id].update(final_state)
-            self._sessions[session_id]["status"] = HealingStatus.DISPATCHED  # Ensure it stays DISPATCHED
+            self._sessions[session_id]["status"] = HealingStatus.DISPATCHED  
+            self._sessions[session_id]["completed_at"] = datetime.now()
             
             return {"success": True, "message": "Solution dispatched to client.", "status": "dispatched", "session_id": session_id}
         else:

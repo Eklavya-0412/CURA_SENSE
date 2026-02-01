@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from services.support_agent import support_agent
-from models.types import AgentOutput
+from models.types import AgentOutput, HealingStatus
 
 
 # ============ Request/Response Models ============
@@ -248,17 +248,137 @@ async def get_session_history(limit: int = 10):
 
 @router.get("/metrics")
 async def get_metrics():
-    """
-    Get agent performance metrics.
+    """Calculate real-time system health metrics"""
+    total = len(support_agent._sessions)
+    if total == 0:
+        return {
+            "success_rate": 0,
+            "total_sessions": 0,
+            "learning_events_count": 0,
+            "avg_resolution_time": 0,
+            "active_sessions": 0
+        }
+        
+    # Count specific states
+    completed = 0
+    dispatched = 0
+    failed = 0
+    learning_events = 0
     
-    Includes:
-    - Total sessions processed
-    - Auto-resolved vs human-escalated counts
-    - Number of learning events
-    - Success rate
-    - Pending approvals count
-    """
-    return support_agent.get_metrics()
+    for s in support_agent._sessions.values():
+        status = s.get("status")
+        # Handle Enum or string
+        if hasattr(status, 'value'):
+            status_val = status.value
+        else:
+            status_val = str(status)
+            
+        if status_val == "completed": completed += 1
+        if status_val == "dispatched": dispatched += 1
+        if status_val == "failed": failed += 1
+        if s.get("is_learning_candidate"): learning_events += 1
+
+    # Success = (Completed + Dispatched) / Total Finished
+    # We avoid dividing by zero if no sessions are finished
+    finished_count = completed + dispatched + failed
+    success_rate = ((completed + dispatched) / finished_count) if finished_count > 0 else 0
+
+    return {
+        "success_rate": round(success_rate, 2),
+        "total_sessions": total,
+        "learning_events_count": learning_events,
+        "active_sessions": total - finished_count
+    }
+
+
+@router.get("/analytics")
+async def get_analytics():
+    """Aggregate data for the visual dashboard"""
+    error_types = {}
+    severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    
+    for s in support_agent._sessions.values():
+        # Count Error Types
+        # Use diagnosis root cause or fallback to "Unknown"
+        cause = "Unknown"
+        if s.get("diagnosis"):
+            if hasattr(s["diagnosis"], "root_cause"):
+                 # Handle Enum
+                if hasattr(s["diagnosis"].root_cause, "value"):
+                    cause = s["diagnosis"].root_cause.value.replace("_", " ").title()
+                else:
+                    cause = str(s["diagnosis"].root_cause).replace("_", " ").title()
+            else:
+                 cause = str(s.get("diagnosis", {})).replace("_", " ").title()
+        elif s.get("auto_generated"):
+            # Try to guess from ticket
+            ticket = s.get("original_ticket", {})
+            cause = ticket.get("metadata", {}).get("category", "Auto-Detected").title()
+        
+        error_types[cause] = error_types.get(cause, 0) + 1
+        
+        # Count Severity
+        risk = s.get("risk_assessment")
+        if risk:
+             # Handle Enum
+            if hasattr(risk, "risk_level"):
+                if hasattr(risk.risk_level, "value"):
+                    level = risk.risk_level.value
+                else:
+                    level = str(risk.risk_level)
+            else:
+                level = "low"
+                
+            if level in severity_counts:
+                severity_counts[level] += 1
+            else:
+                severity_counts[level] = 1 # Fallback for unexpected values
+            
+    # Calculate stats
+    total_tickets = len(support_agent._sessions)
+    resolved_count = 0
+    success_sum = 0
+    confidence_sum = 0
+    confidence_count = 0
+    
+    for s in support_agent._sessions.values():
+        status = s.get("status")
+        # Handle Enum or string
+        if hasattr(status, 'value'):
+            status_val = status.value
+        else:
+            status_val = str(status)
+            
+        if status_val in ["completed", "dispatched"]:
+            resolved_count += 1
+            success_sum += 1
+        elif status_val == "failed":
+            success_sum += 0 # explicit
+            
+        # Confidence
+        if s.get("diagnosis"):
+            diagnosis = s["diagnosis"]
+            conf = 0
+            if hasattr(diagnosis, "confidence"):
+                conf = diagnosis.confidence
+            elif isinstance(diagnosis, dict):
+                conf = diagnosis.get("confidence", 0)
+            
+            confidence_sum += conf
+            confidence_count += 1
+
+    success_rate = (resolved_count / total_tickets) if total_tickets > 0 else 0
+    avg_confidence = (confidence_sum / confidence_count) if confidence_count > 0 else 0
+
+    # Format for frontend
+    return {
+        "issue_distribution": error_types,
+        "risk_profile": severity_counts,
+        "total_tickets": total_tickets,
+        "resolved_count": resolved_count,
+        "success_rate": success_rate,
+        "avg_confidence": avg_confidence
+    }
 
 
 # ============ Merchant Portal Endpoints ============
@@ -281,6 +401,13 @@ async def merchant_submit(request: MerchantIssue):
         client_message=request.message,
         merchant_id=request.merchant_id
     )
+    
+    # CRITICAL FIX: Explicitly save metadata so it appears in history
+    # Manual tickets are NOT auto_generated, but they belong to the merchant
+    if session_id in support_agent._sessions:
+        support_agent._sessions[session_id]["merchant_id"] = request.merchant_id
+        support_agent._sessions[session_id]["auto_generated"] = False 
+    
     return {"session_id": session_id, "status": "processing"}
 
 
@@ -420,3 +547,50 @@ async def merchant_view(session_id: str):
         "status": "in_review",
         "message": "Our automated agent is analyzing the issue. Support will review and approve a fix shortly."
     }
+
+
+@router.get("/merchant/history/{merchant_id}")
+async def get_merchant_session_history(merchant_id: str):
+    sessions = []
+    print(f"DEBUG: Fetching history for {merchant_id}") # Check your terminal logs for this!
+    
+    for s_id, session in support_agent._sessions.items():
+        s_data = session if isinstance(session, dict) else session.model_dump()
+        
+        # DEBUG: Print what we find to the console
+        if s_data.get("merchant_id") == merchant_id:
+            status = s_data.get("status")
+            if hasattr(status, 'value'):
+                status_val = status.value
+            else:
+                status_val = str(status)
+
+            print(f"DEBUG: Found session {s_id} with status {status_val}")
+            
+            # ALLOW ALL STATUSES for now to verify data flow
+            # We can filter strictly later once we see data appearing
+            
+            # Safe retrieval of nested fields
+            diagnosis = s_data.get("diagnosis")
+            confidence = diagnosis.confidence if diagnosis else 0
+            
+            proposed_action = s_data.get("proposed_action")
+            solution = None
+            if proposed_action:
+                if hasattr(proposed_action, 'draft_content'):
+                    solution = proposed_action.draft_content
+                else:
+                    solution = proposed_action.get("draft_content")
+
+            sessions.append({
+                "id": s_id,
+                "status": status_val,
+                "timestamp": s_data.get("started_at"),
+                "diagnosis": diagnosis,
+                "solution": solution,
+                "confidence": confidence,
+                "is_auto_detected": s_data.get("auto_generated", False)
+            })
+            
+    sessions.sort(key=lambda x: str(x["timestamp"]), reverse=True)
+    return {"sessions": sessions}

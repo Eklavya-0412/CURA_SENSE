@@ -208,6 +208,19 @@ export async function getAgentMetrics() {
     return response.json();
 }
 
+/**
+ * Get analytics data
+ */
+export async function getAnalytics() {
+    const response = await fetch(`${API_BASE_URL}/agent/analytics`);
+
+    if (!response.ok) {
+        throw new Error('Failed to get analytics');
+    }
+
+    return response.json();
+}
+
 // ============ CLIENT/MERCHANT API ============
 
 /**

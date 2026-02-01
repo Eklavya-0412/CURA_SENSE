@@ -918,10 +918,13 @@ Confidence is below 85% ({diagnosis.confidence:.0%}). This indicates:
     explanation = "\n".join(explanation_parts)
     
     # Determine if this should be a learning candidate
-    is_learning = diagnosis and diagnosis.confidence < 0.7
+    # CRITICAL UPDATE: We should learn from ANY interaction that required human review.
+    # If a human had to approve it, it's a high-value training signal.
+    requires_approval = state.get("requires_human_approval", False)
+    is_learning = requires_approval or (diagnosis and diagnosis.confidence < 0.9)
 
     # Determine if this should be a waiting candidate
-    is_waiting = state.get("requires_human_approval") and state.get("approval_status") != "approved"
+    is_waiting = requires_approval and state.get("approval_status") != "approved"
     final_status = HealingStatus.AWAITING_APPROVAL if is_waiting else HealingStatus.COMPLETED
     return {
         **state,
