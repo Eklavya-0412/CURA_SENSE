@@ -2,7 +2,7 @@ Here is a comprehensive `README.md` for your GitHub repository, tailored to the 
 
 ---
 
-# 🛡️ CuraSense (formerly MigraGuard)
+# 🛡️ CuraSense 
 
 **Automated Self-Healing AI Agent for E-Commerce Migrations**
 
