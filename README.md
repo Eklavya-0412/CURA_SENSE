@@ -137,15 +137,7 @@ CURA_SENSE/
 
 ---
 
-## 🤝 Contributing
 
-Contributions are welcome! Please fork the repository and submit a pull request.
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
----
 
 <p align="center">
 Built with ❤️ by <a href="[https://github.com/Eklavya-0412](https://www.google.com/search?q=https://github.com/Eklavya-0412)">Eklavya-0412</a>
