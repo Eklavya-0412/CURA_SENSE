@@ -75,7 +75,106 @@ export default function MerchantApp() {
         }
     };
 
-    // ... Polling useEffect ...
+    // Poll for updates
+    useEffect(() => {
+        if (!sessionId || !isWaiting) return;
+
+        const pollInterval = setInterval(async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/agent/session/${sessionId}`);
+                if (!res.ok) return;
+
+                const data = await res.json();
+                setSessionStatus(data.status);
+
+                if (data.status === 'completed' || data.status === 'awaiting_approval') {
+                    clearInterval(pollInterval);
+                    setIsWaiting(false);
+
+                    // Parse solution if possible
+                    let solutionText = data.solution;
+                    let fixType = 'code_change';
+                    let description = "A fix has been prepared for your issue.";
+
+                    try {
+                        const parsed = JSON.parse(data.solution);
+                        if (parsed.content) solutionText = parsed.content;
+                        if (parsed.type) fixType = parsed.type;
+                        if (parsed.description) description = parsed.description;
+                    } catch (e) {
+                        // Use raw text
+                    }
+
+                    setReply(solutionText);
+                    setFixData({
+                        type: fixType,
+                        solution: solutionText,
+                        description: description,
+                        file: data.diagnosis?.file || "instructions.txt"
+                    });
+
+                    // Only show popup for valid solutions
+                    if (data.solution) {
+                        setShowFixPopup(true);
+                    }
+                }
+            } catch (error) {
+                console.error("Polling error:", error);
+            }
+        }, 2000);
+
+        return () => clearInterval(pollInterval);
+    }, [sessionId, isWaiting]);
+
+    const refreshHistory = async () => {
+        try {
+            setHistoryLoading(true);
+            const res = await fetch(`${API_BASE_URL}/agent/merchant/history/${merchantId}`);
+            if (res.ok) {
+                const data = await res.json();
+                setSessionHistory(data.sessions || []);
+            }
+        } catch (error) {
+            console.error("Failed to load history:", error);
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+
+    const handleReset = () => {
+        setInput("");
+        setSessionId(null);
+        setReply(null);
+        setIsWaiting(false);
+        setError(null);
+        setSessionStatus(null);
+        setShowFixPopup(false);
+        setFixData(null);
+    };
+
+    const handleCopy = () => {
+        if (fixData?.solution) {
+            navigator.clipboard.writeText(fixData.solution);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
+    };
+
+    const getFixIcon = (type) => {
+        switch (type) {
+            case 'code_change': return <Code className="w-4 h-4" />;
+            case 'cli_command': return <Terminal className="w-4 h-4" />;
+            default: return <ListChecks className="w-4 h-4" />;
+        }
+    };
+
+    const getFixLabel = (type) => {
+        switch (type) {
+            case 'code_change': return "Code Patch";
+            case 'cli_command': return "Terminal Command";
+            default: return "Instruction";
+        }
+    };
 
     return (
         <div className="min-h-screen bg-[#09090b] text-[#fafafa] flex flex-col items-center justify-center py-32 px-8 font-sans selection:bg-white selection:text-black relative" data-theme={theme}>

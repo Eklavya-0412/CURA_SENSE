@@ -6,7 +6,7 @@ Each node implements one step of the 10-step system prompt.
 import uuid
 from typing import Dict, Any, List
 from datetime import datetime
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 
@@ -14,7 +14,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import GOOGLE_API_KEY, LLM_MODEL
+from config import GROQ_API_KEY, LLM_MODEL
 from services.vector_store import get_vector_store
 from services.embeddings import EmbeddingService
 from models.types import (
@@ -29,11 +29,10 @@ from models.types import (
 
 def get_llm():
     """Get the configured LLM"""
-    return ChatGoogleGenerativeAI(
+    return ChatGroq(
         model=LLM_MODEL,
-        google_api_key=GOOGLE_API_KEY,
-        temperature=0.3,  # Lower for more consistent outputs
-        convert_system_message_to_human=True
+        groq_api_key=GROQ_API_KEY,
+        temperature=0.3  # Lower for more consistent outputs
     )
 
 

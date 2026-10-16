@@ -2,7 +2,6 @@
 langchain
 langchain-openai
 langchain-community
-langchain-google-genai
 langchain-groq
 langchain-core
 langchain-text-splitters

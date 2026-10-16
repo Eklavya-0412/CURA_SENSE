@@ -13,8 +13,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 # LLM Configuration
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 # Vector DB Configuration
@@ -28,8 +26,8 @@ API_PORT = int(os.getenv("API_PORT", "8000"))
 # Embedding Model
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 
-# LLM Model (Gemini 2.5 Flash)
-LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.5-flash-preview-05-20")
+# LLM Model
+LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-120b")
 
 # Safety Configuration (from self-healing-framework)
 MIN_CONFIDENCE_FOR_AUTO_ACTION = float(os.getenv("MIN_CONFIDENCE_FOR_AUTO_ACTION", "0.85"))

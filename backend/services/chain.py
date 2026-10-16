@@ -3,7 +3,7 @@ LangChain Chain Service for RAG pipeline.
 Handles document ingestion, retrieval, and LLM querying.
 """
 from typing import List, Optional
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -12,7 +12,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_core.documents import Document
 
-from config import GOOGLE_API_KEY, LLM_MODEL
+from config import GROQ_API_KEY, LLM_MODEL
 from services.vector_store import get_vector_store
 
 
@@ -28,11 +28,10 @@ class ChainService:
     
     def __init__(self):
         if not hasattr(self, '_initialized'):
-            self._llm = ChatGoogleGenerativeAI(
+            self._llm = ChatGroq(
                 model=LLM_MODEL,
-                google_api_key=GOOGLE_API_KEY,
-                temperature=0.7,
-                convert_system_message_to_human=True
+                groq_api_key=GROQ_API_KEY,
+                temperature=0.7
             )
             self._vector_store = get_vector_store()
             self._text_splitter = RecursiveCharacterTextSplitter(
