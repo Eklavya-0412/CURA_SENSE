@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ChevronRight, FileText } from 'lucide-react';
 
 /**
  * Message bubble component for chat messages
@@ -7,47 +8,32 @@ export default function MessageBubble({ message, isUser, sources = [] }) {
     const [showSources, setShowSources] = useState(false);
 
     return (
-        <div
-            className={`fade-in flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}
-        >
+        <div className={`animate-enter flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
             <div
-                className={`max-w-[80%] rounded-2xl px-4 py-3 ${isUser
-                        ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white'
-                        : 'glass text-slate-100'
+                className={`max-w-[85%] sm:max-w-[75%] rounded-xl px-4 py-3 text-sm leading-6 ${isUser
+                    ? 'bg-accent text-white rounded-br-sm'
+                    : 'bg-surface border border-line text-fg rounded-bl-sm'
                     }`}
             >
-                <p className="whitespace-pre-wrap">{message}</p>
+                <p className="whitespace-pre-wrap break-words">{message}</p>
 
                 {!isUser && sources.length > 0 && (
-                    <div className="mt-3 pt-2 border-t border-white/10">
+                    <div className="mt-3 pt-2.5 border-t border-line">
                         <button
                             onClick={() => setShowSources(!showSources)}
-                            className="text-cyan-400 text-sm hover:text-cyan-300 transition-colors flex items-center gap-1"
+                            className="flex items-center gap-1 text-xs font-medium text-fg-muted hover:text-fg transition-colors"
+                            aria-expanded={showSources}
                         >
-                            <svg
-                                className={`w-4 h-4 transition-transform ${showSources ? 'rotate-90' : ''}`}
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M9 5l7 7-7 7"
-                                />
-                            </svg>
-                            {sources.length} source{sources.length > 1 ? 's' : ''}
+                            <ChevronRight className={`w-3.5 h-3.5 transition-transform ${showSources ? 'rotate-90' : ''}`} />
+                            {sources.length} source{sources.length > 1 ? 's' : ''} retrieved
                         </button>
 
                         {showSources && (
-                            <div className="mt-2 space-y-2">
+                            <div className="mt-2 space-y-1.5">
                                 {sources.map((source, idx) => (
-                                    <div
-                                        key={idx}
-                                        className="text-sm text-slate-400 bg-white/5 rounded-lg p-2"
-                                    >
-                                        <p className="line-clamp-3">{source.content}</p>
+                                    <div key={idx} className="well px-3 py-2 flex gap-2">
+                                        <FileText className="w-3.5 h-3.5 mt-0.5 shrink-0 text-fg-subtle" />
+                                        <p className="t-meta text-fg-muted line-clamp-3">{source.content}</p>
                                     </div>
                                 ))}
                             </div>

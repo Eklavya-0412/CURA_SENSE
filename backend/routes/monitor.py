@@ -189,7 +189,8 @@ async def report_live_error(
     # 4. Trigger AI analysis asynchronously
     session_id = await support_agent.analyze_async(
         client_message=ticket["description"],
-        merchant_id=signal.merchant_id
+        merchant_id=signal.merchant_id,
+        source="monitor"
     )
     
     # 5. Log the signal
@@ -225,7 +226,8 @@ async def report_batch_errors(
         
         session_id = await support_agent.analyze_async(
             client_message=ticket["description"],
-            merchant_id=signal.merchant_id
+            merchant_id=signal.merchant_id,
+            source="monitor"
         )
         
         results.append({

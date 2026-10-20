@@ -16,7 +16,19 @@ load_dotenv(BASE_DIR / ".env")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 # Vector DB Configuration
-CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", str(BASE_DIR / "chroma_db"))
+_env_chroma = os.getenv("CHROMA_PERSIST_DIR")
+if _env_chroma:
+    _chroma_path = Path(_env_chroma)
+    if not _chroma_path.is_absolute():
+        _chroma_path = BASE_DIR / _chroma_path
+    if not _chroma_path.exists() and (BASE_DIR / "backend" / "chroma_db").exists():
+        _chroma_path = BASE_DIR / "backend" / "chroma_db"
+else:
+    _chroma_path = BASE_DIR / "backend" / "chroma_db"
+    if not _chroma_path.exists():
+        _chroma_path = BASE_DIR / "chroma_db"
+
+CHROMA_PERSIST_DIR = str(_chroma_path)
 VECTOR_DB_TYPE = os.getenv("VECTOR_DB_TYPE", "chroma")
 
 # API Configuration

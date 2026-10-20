@@ -2,11 +2,23 @@ import { useState, useRef, useEffect } from 'react';
 import MessageBubble from './MessageBubble';
 import FileUpload from './FileUpload';
 import { sendMessage, clearChatHistory, uploadPdf } from '../api/client';
+import { Sparkles, Upload, Trash2, MessageSquare, Loader2, Send } from 'lucide-react';
 
 /**
  * Main chat interface component
  */
-export default function ChatInterface() {
+// Collection the knowledge-base docs are ingested into (backend/scripts/ingest_initial.py).
+// Uploads go to the same collection so they are searchable from the chat.
+const KB_COLLECTION = 'knowledge_base';
+
+const STARTER_PROMPTS = [
+    'Our webhooks stopped arriving after the migration. What should I check?',
+    'How long do access tokens last, and what changed from the old API?',
+    'Stripe says "Invalid API key" after we migrated. How do I fix it?',
+    'We are getting 429 errors on bulk product sync. What are the rate limits?',
+];
+
+export default function ChatInterface({ embedded = false }) {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -38,7 +50,7 @@ export default function ChatInterface() {
         setIsLoading(true);
 
         try {
-            const response = await sendMessage(userMessage, 'default', useRag);
+            const response = await sendMessage(userMessage, KB_COLLECTION, useRag);
             setMessages((prev) => [
                 ...prev,
                 {
@@ -74,7 +86,7 @@ export default function ChatInterface() {
     const handleUpload = async (file) => {
         setIsUploading(true);
         try {
-            const response = await uploadPdf(file);
+            const response = await uploadPdf(file, KB_COLLECTION);
             showNotification(`Uploaded: ${response.chunk_count} chunks processed`, 'success');
             setShowUpload(false);
         } catch (error) {
@@ -92,50 +104,53 @@ export default function ChatInterface() {
     };
 
     return (
-        <div className="flex flex-col h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950">
+        <div className={embedded
+            ? 'card overflow-hidden flex flex-col h-[calc(100vh-12rem)] min-h-[520px] text-fg'
+            : 'flex flex-col h-screen bg-canvas text-fg'}>
             {/* Header */}
-            <header className="glass border-b border-white/10 px-6 py-4">
-                <div className="max-w-4xl mx-auto flex items-center justify-between">
-                    <div>
-                        <h1 className="text-2xl font-bold gradient-text">Agentic AI</h1>
-                        <p className="text-slate-400 text-sm">Powered by LangChain & RAG</p>
+            <header className="border-b border-line bg-surface">
+                <div className="max-w-4xl mx-auto h-16 px-4 sm:px-6 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent/15 ring-1 ring-inset ring-accent/30 text-accent shrink-0">
+                            <Sparkles className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0 leading-tight">
+                            <h1 className="t-h3">Troubleshooting assistant</h1>
+                            <p className="t-meta truncate">Answers grounded in your knowledge base</p>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1">
                         {/* RAG Toggle */}
-                        <label className="flex items-center gap-2 cursor-pointer">
-                            <span className="text-sm text-slate-400">RAG</span>
-                            <div
-                                onClick={() => setUseRag(!useRag)}
-                                className={`w-10 h-5 rounded-full transition-colors ${useRag ? 'bg-indigo-500' : 'bg-slate-600'
-                                    } relative`}
-                            >
-                                <div
-                                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${useRag ? 'translate-x-5' : 'translate-x-0.5'
-                                        }`}
-                                />
-                            </div>
-                        </label>
-
-                        {/* Upload Button */}
                         <button
-                            onClick={() => setShowUpload(!showUpload)}
-                            className="p-2 rounded-lg hover:bg-white/10 transition-colors text-slate-300"
-                            title="Upload Document"
+                            type="button"
+                            role="switch"
+                            aria-checked={useRag}
+                            onClick={() => setUseRag(!useRag)}
+                            className="btn btn-ghost btn-sm gap-2"
+                            title="Retrieve context from the knowledge base"
                         >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                            </svg>
+                            <span className="text-xs font-medium">RAG</span>
+                            <span className={`relative w-8 h-[18px] rounded-full transition-colors ${useRag ? 'bg-accent' : 'bg-surface-3 ring-1 ring-inset ring-line-strong'}`}>
+                                <span className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform ${useRag ? 'translate-x-[16px]' : 'translate-x-[2px]'}`} />
+                            </span>
                         </button>
 
-                        {/* Clear History */}
+                        <button
+                            onClick={() => setShowUpload(!showUpload)}
+                            className={`btn btn-ghost btn-icon btn-sm ${showUpload ? 'text-fg bg-surface-2' : ''}`}
+                            title="Upload document"
+                            aria-label="Upload document"
+                        >
+                            <Upload />
+                        </button>
+
                         <button
                             onClick={handleClearHistory}
-                            className="p-2 rounded-lg hover:bg-white/10 transition-colors text-slate-300"
-                            title="Clear History"
+                            className="btn btn-ghost btn-icon btn-sm"
+                            title="Clear history"
+                            aria-label="Clear history"
                         >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
+                            <Trash2 />
                         </button>
                     </div>
                 </div>
@@ -144,11 +159,12 @@ export default function ChatInterface() {
             {/* Notification */}
             {notification && (
                 <div
-                    className={`fixed top-20 right-4 z-50 px-4 py-2 rounded-lg fade-in ${notification.type === 'error'
-                            ? 'bg-red-500/90'
-                            : notification.type === 'success'
-                                ? 'bg-green-500/90'
-                                : 'bg-indigo-500/90'
+                    role="status"
+                    className={`fixed top-20 right-4 z-50 card px-3.5 py-2.5 flex items-center gap-2 text-[13px] animate-enter ${notification.type === 'error'
+                        ? 'border-danger/40 text-[#ff8a8a]'
+                        : notification.type === 'success'
+                            ? 'border-success/40 text-[#5fd09d]'
+                            : 'border-accent/40 text-[#8fb6ff]'
                         }`}
                 >
                     {notification.message}
@@ -157,26 +173,34 @@ export default function ChatInterface() {
 
             {/* Upload Panel */}
             {showUpload && (
-                <div className="max-w-4xl mx-auto w-full px-6 py-4">
+                <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 pt-4">
                     <FileUpload onUpload={handleUpload} isUploading={isUploading} />
                 </div>
             )}
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6">
                 <div className="max-w-4xl mx-auto">
                     {messages.length === 0 ? (
-                        <div className="text-center py-20">
-                            <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 flex items-center justify-center pulse-glow">
-                                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
-                                </svg>
+                        <div className="text-center py-16">
+                            <div className="w-10 h-10 mx-auto mb-4 rounded-lg bg-surface-3 text-fg-muted flex items-center justify-center">
+                                <MessageSquare className="w-5 h-5" />
                             </div>
-                            <h2 className="text-xl font-semibold text-white mb-2">Ready to assist you</h2>
-                            <p className="text-slate-400 max-w-md mx-auto">
-                                Upload documents to build your knowledge base, then ask questions!
-                                Toggle RAG on/off to control context retrieval.
+                            <h2 className="t-h2">Ask about a migration issue</h2>
+                            <p className="t-body mt-1.5 max-w-md mx-auto">
+                                Answers are grounded in the migration knowledge base. Upload PDFs to extend it; toggle RAG to compare with an ungrounded answer.
                             </p>
+                            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-2xl mx-auto text-left">
+                                {STARTER_PROMPTS.map((prompt) => (
+                                    <button
+                                        key={prompt}
+                                        onClick={() => setInput(prompt)}
+                                        className="px-3 py-2.5 rounded-lg border border-line bg-surface-2 text-[13px] leading-5 text-fg-muted hover:text-fg hover:border-line-strong transition-colors"
+                                    >
+                                        {prompt}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     ) : (
                         messages.map((msg, idx) => (
@@ -191,12 +215,9 @@ export default function ChatInterface() {
 
                     {isLoading && (
                         <div className="flex justify-start mb-4">
-                            <div className="glass rounded-2xl px-4 py-3">
-                                <div className="flex gap-1">
-                                    <div className="w-2 h-2 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                                    <div className="w-2 h-2 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                                    <div className="w-2 h-2 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '300ms' }} />
-                                </div>
+                            <div className="card px-4 py-3 flex items-center gap-2 t-meta">
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
+                                Searching knowledge base…
                             </div>
                         </div>
                     )}
@@ -206,25 +227,24 @@ export default function ChatInterface() {
             </div>
 
             {/* Input Area */}
-            <div className="glass border-t border-white/10 px-6 py-4">
-                <div className="max-w-4xl mx-auto">
-                    <div className="flex gap-3">
-                        <textarea
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyPress={handleKeyPress}
-                            placeholder="Ask anything..."
-                            rows={1}
-                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-500 resize-none focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
-                        />
-                        <button
-                            onClick={handleSend}
-                            disabled={!input.trim() || isLoading}
-                            className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-medium rounded-xl hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                        >
-                            Send
-                        </button>
-                    </div>
+            <div className="border-t border-line bg-surface px-4 sm:px-6 py-3">
+                <div className="max-w-4xl mx-auto flex items-end gap-2">
+                    <textarea
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyPress={handleKeyPress}
+                        placeholder="Ask anything…  (Enter to send, Shift+Enter for a new line)"
+                        rows={1}
+                        className="input flex-1 resize-none min-h-[40px] max-h-40"
+                    />
+                    <button
+                        onClick={handleSend}
+                        disabled={!input.trim() || isLoading}
+                        className="btn btn-primary btn-lg"
+                    >
+                        <Send />
+                        Send
+                    </button>
                 </div>
             </div>
         </div>

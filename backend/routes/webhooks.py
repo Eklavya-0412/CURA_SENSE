@@ -209,7 +209,8 @@ async def receive_error_event(error: ErrorEvent, request: Request):
     # Trigger async analysis
     session_id = await support_agent.analyze_async(
         client_message=ticket.description,
-        merchant_id=error.merchant_id
+        merchant_id=error.merchant_id,
+        source="webhook"
     )
     
     # Also store the structured ticket for history
@@ -235,7 +236,8 @@ async def receive_checkout_failure(failure: CheckoutFailure):
     
     session_id = await support_agent.analyze_async(
         client_message=ticket.description,
-        merchant_id=failure.merchant_id
+        merchant_id=failure.merchant_id,
+        source="webhook"
     )
     
     support_agent._sessions[session_id]["original_ticket"] = ticket.model_dump()
@@ -261,7 +263,8 @@ async def receive_api_failure(failure: APIFailure):
     
     session_id = await support_agent.analyze_async(
         client_message=ticket.description,
-        merchant_id=failure.merchant_id
+        merchant_id=failure.merchant_id,
+        source="webhook"
     )
     
     support_agent._sessions[session_id]["original_ticket"] = ticket.model_dump()
@@ -309,7 +312,8 @@ async def receive_webhook_failure(failure: WebhookFailure):
     
     session_id = await support_agent.analyze_async(
         client_message=ticket.description,
-        merchant_id=failure.merchant_id
+        merchant_id=failure.merchant_id,
+        source="webhook"
     )
     
     support_agent._sessions[session_id]["original_ticket"] = ticket.model_dump()

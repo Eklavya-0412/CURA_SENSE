@@ -1,6 +1,14 @@
 """
 FastAPI Main Application - MigraGuard Agent Backend
 """
+import sys
+from pathlib import Path
+
+# Add backend directory to sys.path so modules like config, routes, models are always found
+_backend_dir = str(Path(__file__).resolve().parent)
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

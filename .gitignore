@@ -11,3 +11,14 @@ wheels/
 .env
 .env.*
 !.env.example
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+
+# Local vector database
+backend/chroma_db/
+chroma_db/
+
+# Python cache files
+__pycache__/

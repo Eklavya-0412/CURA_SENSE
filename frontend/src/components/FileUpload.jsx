@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { UploadCloud, Loader2 } from 'lucide-react';
 
 /**
  * File upload component for PDF documents
@@ -38,14 +39,16 @@ export default function FileUpload({ onUpload, isUploading }) {
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
             className={`
-        border-2 border-dashed rounded-xl p-6 text-center cursor-pointer
-        transition-all duration-300
+        border border-dashed rounded-xl px-6 py-6 text-center cursor-pointer transition-colors
         ${isDragging
-                    ? 'border-indigo-500 bg-indigo-500/10'
-                    : 'border-white/20 hover:border-indigo-400 hover:bg-white/5'
+                    ? 'border-accent bg-accent/10'
+                    : 'border-line-strong bg-surface hover:border-accent/60 hover:bg-surface-2'
                 }
-        ${isUploading ? 'pointer-events-none opacity-50' : ''}
+        ${isUploading ? 'pointer-events-none opacity-60' : ''}
       `}
         >
             <input
@@ -57,32 +60,18 @@ export default function FileUpload({ onUpload, isUploading }) {
             />
 
             {isUploading ? (
-                <div className="flex flex-col items-center">
-                    <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-2" />
-                    <p className="text-slate-400">Uploading...</p>
+                <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="w-5 h-5 animate-spin text-accent" />
+                    <p className="t-small text-fg-muted">Uploading…</p>
                 </div>
             ) : (
-                <>
-                    <svg
-                        className="w-10 h-10 mx-auto mb-3 text-indigo-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                    >
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={1.5}
-                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                        />
-                    </svg>
-                    <p className="text-slate-300 font-medium">
-                        Drop a PDF here or click to upload
-                    </p>
-                    <p className="text-slate-500 text-sm mt-1">
-                        Documents will be added to your knowledge base
-                    </p>
-                </>
+                <div className="flex flex-col items-center">
+                    <div className="w-9 h-9 rounded-lg bg-surface-3 text-fg-muted flex items-center justify-center mb-3">
+                        <UploadCloud className="w-[18px] h-[18px]" />
+                    </div>
+                    <p className="t-h3">Drop a PDF here or click to upload</p>
+                    <p className="t-meta mt-1">Documents are added to the troubleshooting knowledge base</p>
+                </div>
             )}
         </div>
     );

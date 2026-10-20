@@ -1,30 +1,62 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    Activity, AlertTriangle, CheckCircle, Clock,
-    FileText, Server, Shield, Brain, X,
-    ThumbsUp, ThumbsDown, RefreshCw, BarChart2, Bell
+    Activity, AlertTriangle, CheckCircle2, Clock, FileText, Brain, X,
+    ThumbsUp, ThumbsDown, RefreshCw, BarChart2, Bell, Database, Gauge,
+    Layers, ShieldAlert, ExternalLink, Sparkles, Zap, Inbox, ArrowUpRight, MessageSquare, ScrollText, Search, Quote
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { getAgentMetrics, getSessionHistory, getApprovalQueue, approveAction, getAnalytics } from '../api/client';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from 'recharts';
+import { getAgentMetrics, getSessionHistory, getApprovalQueue, approveAction, getAnalytics, seedDemoData, getSession, getActivityFeed } from '../api/client';
+import {
+    BrandMark, RiskBadge, StatusBadge, ConfidenceMeter, WorkflowStepper, SectionLabel, EmptyState,
+    MerchantTag, ActivityLog
+} from './ui';
+import { humanize, formatPercent, formatDateTime, sourceLabel, RISK_COLORS } from '../lib/format';
+import ChatInterface from './ChatInterface';
 
-// Spring configurations for physics-based animations
-const springConfig = { type: "spring", stiffness: 400, damping: 25 };
-const buttonSpring = { type: "spring", stiffness: 500, damping: 30 };
+// Mirrors backend /agent/metrics: anything not completed, dispatched or failed is still in the workflow.
+const FINISHED_STATUSES = ['completed', 'dispatched', 'failed'];
+const INCIDENT_FILTERS = {
+    all: { label: 'All', test: () => true },
+    active: { label: 'Active', test: (s) => !FINISHED_STATUSES.includes(s.status) },
+    approval: { label: 'Needs approval', test: (s) => s.status === 'awaiting_approval' },
+};
+
+const NAV_ITEMS = [
+    { key: 'live', label: 'Live incidents', icon: Brain },
+    { key: 'queue', label: 'Approval queue', icon: Clock },
+    { key: 'analytics', label: 'Analytics', icon: BarChart2 },
+    { key: 'history', label: 'Session history', icon: FileText },
+    { key: 'activity', label: 'Activity log', icon: ScrollText },
+    { key: 'assistant', label: 'AI assistant', icon: MessageSquare },
+];
+
+const PAGE_COPY = {
+    live: { title: 'Live incidents', subtitle: 'AI-diagnosed incidents with root cause, risk and proposed fixes.' },
+    queue: { title: 'Approval queue', subtitle: 'High-risk or low-confidence fixes waiting for a human decision.' },
+    analytics: { title: 'Analytics', subtitle: 'Resolution performance and incident distribution across sessions.' },
+    history: { title: 'Session history', subtitle: 'Audit log of every agent session and its outcome.' },
+    activity: { title: 'Activity log', subtitle: 'Every step the agent took, across all merchants, as it happened.' },
+    assistant: { title: 'AI assistant', subtitle: 'RAG troubleshooting assistant grounded in the migration knowledge base.' },
+};
 
 export default function AgentDashboard() {
     const [activeTab, setActiveTab] = useState('live');
+    const [incidentFilter, setIncidentFilter] = useState('all');
+    const incidentsRef = useRef(null);
     const [metrics, setMetrics] = useState(null);
     const [history, setHistory] = useState([]);
     const [queue, setQueue] = useState([]);
     const [analytics, setAnalytics] = useState(null);
     const [activeResult, setActiveResult] = useState(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isSeeding, setIsSeeding] = useState(false);
     const [showToast, setShowToast] = useState(false);
-    const prevHistoryLength = useRef(0);
-
-    // Theme state (internal default dark)
-    const [theme, setTheme] = useState('dark');
+    const [hasLoaded, setHasLoaded] = useState(false);
+    const [lastSynced, setLastSynced] = useState(null);
+    const [activity, setActivity] = useState({ entries: [], total: 0 });
+    const prevTotalSessions = useRef(null);
+    const openSessionId = useRef(null);
 
     // -------------------------------------------------------------------------
     // BACKEND LOGIC
@@ -35,31 +67,53 @@ export default function AgentDashboard() {
         return () => clearInterval(interval);
     }, []);
 
+    const handleSeedDemo = async () => {
+        setIsSeeding(true);
+        try {
+            await seedDemoData();
+            await refreshData();
+        } catch (error) {
+            console.error("Failed to seed demo data:", error);
+        } finally {
+            setIsSeeding(false);
+        }
+    };
+
     const refreshData = async () => {
         setIsRefreshing(true);
         try {
-            const [m, h, q, a] = await Promise.all([
+            const [m, h, q, a, feed] = await Promise.all([
                 getAgentMetrics(),
-                getSessionHistory(),
+                getSessionHistory(50),
                 getApprovalQueue(),
-                getAnalytics()
+                getAnalytics(),
+                getActivityFeed(200).catch(() => null)
             ]);
             setMetrics(m);
             setHistory(h.sessions || []);
             setQueue(q.items || []);
             setAnalytics(a);
+            if (feed) setActivity(feed);
+            setLastSynced(new Date());
 
-            // Check for new tickets
-            const currentCount = h.sessions ? h.sessions.length : 0;
-            if (prevHistoryLength.current > 0 && currentCount > prevHistoryLength.current) {
+            // Check for new tickets. Uses the server-side total, since the history list is capped.
+            const currentCount = m?.total_sessions ?? 0;
+            if (prevTotalSessions.current !== null && currentCount > prevTotalSessions.current) {
                 setShowToast(true);
                 setTimeout(() => setShowToast(false), 5000);
             }
-            prevHistoryLength.current = currentCount;
+            prevTotalSessions.current = currentCount;
+
+            // Keep an open incident report live (status, log, evidence)
+            if (openSessionId.current) {
+                const fresh = await getSession(openSessionId.current).catch(() => null);
+                if (fresh && fresh.session_id === openSessionId.current) setActiveResult(fresh);
+            }
 
         } catch (error) {
             console.error("Failed to fetch data:", error);
         }
+        setHasLoaded(true);
         setIsRefreshing(false);
     };
 
@@ -80,452 +134,600 @@ export default function AgentDashboard() {
     // END BACKEND LOGIC
     // -------------------------------------------------------------------------
 
+    const page = PAGE_COPY[activeTab];
+
+    // Open an incident report: show what we have immediately, then load the full session
+    const openSession = async (sessionOrId) => {
+        const id = typeof sessionOrId === 'string' ? sessionOrId : (sessionOrId.session_id || sessionOrId.id);
+        openSessionId.current = id;
+        const known = typeof sessionOrId === 'string' ? history.find((s) => s.session_id === id) : sessionOrId;
+        if (known) setActiveResult(known);
+        const fresh = await getSession(id).catch(() => null);
+        if (fresh && openSessionId.current === id) setActiveResult(fresh);
+    };
+
+    const closeSession = () => {
+        openSessionId.current = null;
+        setActiveResult(null);
+    };
+
+    // KPI tiles deep-link into the matching workspace view
+    const goTo = (tab, filter) => {
+        setActiveTab(tab);
+        if (tab === 'live') {
+            setIncidentFilter(filter || 'all');
+            requestAnimationFrame(() => incidentsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        } else {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    };
+
     return (
-        <div className="min-h-screen bg-[var(--bg-color)] text-[var(--text-primary)] font-['SF_Pro_Display',_'Inter',_system-ui,_sans-serif] overflow-x-hidden pb-28" data-theme={theme}>
-            {/* Background Gradient Orbs - REMOVED for "Less AI" look */}
-            <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-                <div className="absolute top-0 left-0 w-full h-full bg-[#0d1117] opacity-100" />
-            </div>
-
-            {/* Header */}
-            <header className="relative z-10 px-8 pt-12 pb-6 flex flex-col items-center justify-center text-center">
-                <div className="flex flex-col items-center gap-8">
-                    <div className="flex items-center gap-4 bg-[rgba(255,255,255,0.05)] px-8 py-4 rounded-full border border-[rgba(255,255,255,0.1)]">
-                        <Shield className="w-8 h-8 text-[var(--accent-primary)]" />
-                        <h1 className="text-2xl font-bold tracking-tight text-white">System Operations Console</h1>
-                    </div>
-
-                    <div className="flex items-center gap-6">
-                        {/* Metrics Pills - Larger */}
-                        {metrics && (
-                            <div className="flex gap-6">
-                                <MetricPill label="Success Rate" value={`${(metrics.success_rate * 100).toFixed(0)}%`} size="large" />
-                                <MetricPill label="Total Sessions" value={metrics.total_sessions} size="large" />
-                            </div>
-                        )}
-
-                        {/* Refresh Button */}
-                        <motion.button
-                            onClick={refreshData}
-                            className="bg-[#21262d] border border-[#30363d] text-[#c9d1d9] px-6 py-3 rounded-xl flex items-center gap-3 text-base hover:bg-[#30363d] transition-colors"
-                            whileTap={{ scale: 0.97 }}
-                            transition={buttonSpring}
+        <div className="min-h-screen bg-canvas text-fg lg:pl-60">
+            {/* Sidebar (desktop) */}
+            <aside className="hidden lg:flex fixed inset-y-0 left-0 z-30 w-60 flex-col border-r border-line bg-surface">
+                <div className="h-16 flex items-center px-4 border-b border-line">
+                    <BrandMark subtitle="Operations console" />
+                </div>
+                <nav className="flex-1 px-3 py-4 space-y-0.5" aria-label="Primary">
+                    <div className="t-overline px-2.5 pb-2">Workspace</div>
+                    {NAV_ITEMS.map(({ key, label, icon: Icon }) => (
+                        <button
+                            key={key}
+                            className="nav-item"
+                            aria-current={activeTab === key ? 'page' : undefined}
+                            onClick={() => setActiveTab(key)}
                         >
-                            <motion.div
-                                animate={{ rotate: isRefreshing ? 360 : 0 }}
-                                transition={{ duration: 1, repeat: isRefreshing ? Infinity : 0, ease: "linear" }}
-                            >
-                                <RefreshCw className="w-5 h-5" />
-                            </motion.div>
-                            Sync Data
-                        </motion.button>
+                            <Icon />
+                            <span>{label}</span>
+                            {key === 'queue' && queue.length > 0 && <span className="nav-count">{queue.length}</span>}
+                        </button>
+                    ))}
+                    <div className="t-overline px-2.5 pt-5 pb-2">Portals</div>
+                    <a href="/merchant.html" className="nav-item">
+                        <ExternalLink />
+                        <span>Merchant portal</span>
+                    </a>
+                </nav>
+                <div className="p-3 border-t border-line">
+                    <div className="rounded-lg bg-surface-2 border border-line px-3 py-2.5">
+                        <div className="flex items-center gap-2 text-xs font-medium text-fg">
+                            <span className="relative flex w-2 h-2">
+                                <span className="absolute inset-0 rounded-full bg-success opacity-60 animate-ping" />
+                                <span className="relative w-2 h-2 rounded-full bg-success" />
+                            </span>
+                            Agent online
+                        </div>
+                        <div className="t-meta mt-1">
+                            {lastSynced ? `Synced ${lastSynced.toLocaleTimeString()}` : 'Connecting…'}
+                        </div>
                     </div>
                 </div>
+            </aside>
 
-                {/* Page Title */}
-                <div className="max-w-4xl mx-auto mt-12 mb-10">
-                    <h2 className="text-5xl font-bold tracking-tight text-white mb-4">
-                        {activeTab === 'live' && 'Live Issue Analysis'}
-                        {activeTab === 'queue' && 'Action Approvals'}
-                        {activeTab === 'analytics' && 'System Analytics'}
-                        {activeTab === 'history' && 'Past Sessions'}
-                    </h2>
-                    <p className="text-[#8b949e] text-xl tracking-wide">
-                        {activeTab === 'live' && 'Monitor active sessions and diagnostics in real-time'}
-                        {activeTab === 'queue' && 'Review and approve pending automated fixes'}
-                        {activeTab === 'analytics' && 'Performance metrics and system health trends'}
-                        {activeTab === 'history' && 'Audit log of all agent activities'}
-                    </p>
+            {/* Top bar (mobile / tablet) */}
+            <div className="lg:hidden sticky top-0 z-30 bg-surface/95 backdrop-blur border-b border-line">
+                <div className="h-14 flex items-center justify-between px-4">
+                    <BrandMark subtitle="Operations console" />
+                    <a href="/merchant.html" className="btn btn-ghost btn-sm">Merchant portal</a>
+                </div>
+                <nav className="no-scrollbar flex gap-1 px-3 pb-2 overflow-x-auto" aria-label="Primary">
+                    {NAV_ITEMS.map(({ key, label, icon: Icon }) => (
+                        <button
+                            key={key}
+                            className="nav-item w-auto shrink-0"
+                            aria-current={activeTab === key ? 'page' : undefined}
+                            onClick={() => setActiveTab(key)}
+                        >
+                            <Icon />
+                            <span>{label}</span>
+                            {key === 'queue' && queue.length > 0 && <span className="nav-count">{queue.length}</span>}
+                        </button>
+                    ))}
+                </nav>
+            </div>
+
+            {/* Page header */}
+            <header className="border-b border-line bg-canvas">
+                <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="min-w-0">
+                        <h1 className="t-h1">{page.title}</h1>
+                        <p className="t-body mt-0.5">{page.subtitle}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <button onClick={handleSeedDemo} disabled={isSeeding} className="btn btn-secondary">
+                            <Database className={isSeeding ? 'animate-pulse' : ''} />
+                            {isSeeding ? 'Loading…' : 'Load demo tickets'}
+                        </button>
+                        <button onClick={refreshData} className="btn btn-primary" disabled={isRefreshing && !hasLoaded}>
+                            <RefreshCw className={isRefreshing ? 'animate-spin' : ''} />
+                            Sync data
+                        </button>
+                    </div>
                 </div>
             </header>
 
-            {/* Main Content Area */}
-            <main className="relative z-10 px-8">
-                <div className="max-w-7xl mx-auto">
-                    {activeTab === 'live' && (
+            {/* Main content */}
+            <main className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-16">
+                {activeTab === 'live' && (
+                    <>
+                        <KpiStrip metrics={metrics} queue={queue} onNavigate={goTo} />
                         <LiveAnalysisView
                             history={history}
-                            activeResult={activeResult}
-                            setActiveResult={setActiveResult}
-                            handleApproval={handleApproval}
+                            hasLoaded={hasLoaded}
+                            filter={incidentFilter}
+                            setFilter={setIncidentFilter}
+                            sectionRef={incidentsRef}
+                            setActiveResult={openSession}
+                            handleSeedDemo={handleSeedDemo}
+                            isSeeding={isSeeding}
                         />
-                    )}
+                    </>
+                )}
 
-                    {activeTab === 'queue' && (
-                        <QueueView queue={queue} handleApproval={handleApproval} />
-                    )}
+                {activeTab === 'queue' && (
+                    <QueueView queue={queue} handleApproval={handleApproval} onOpen={openSession} />
+                )}
 
-                    {activeTab === 'analytics' && (
-                        <AnalyticsView analytics={analytics} />
-                    )}
+                {activeTab === 'analytics' && (
+                    <AnalyticsView analytics={analytics} onNavigate={goTo} />
+                )}
 
-                    {activeTab === 'history' && (
-                        <HistoryView history={history} />
-                    )}
-                </div>
+                {activeTab === 'history' && (
+                    <HistoryView history={history} onOpen={openSession} />
+                )}
+
+                {activeTab === 'activity' && (
+                    <ActivityView feed={activity} onOpen={openSession} />
+                )}
+
+                {activeTab === 'assistant' && (
+                    <ChatInterface embedded />
+                )}
             </main>
 
-            {/* New Ticket Toast */}
+            {/* Session detail modal (opened from Live incidents or History) */}
+            <AnimatePresence>
+                {activeResult && (
+                    <ExpandedSessionView
+                        session={activeResult}
+                        onClose={closeSession}
+                        handleApproval={handleApproval}
+                    />
+                )}
+            </AnimatePresence>
+
+            {/* New ticket toast */}
             <AnimatePresence>
                 {showToast && (
                     <motion.div
-                        initial={{ opacity: 0, y: -20, x: '-50%' }}
-                        animate={{ opacity: 1, y: 0, x: '-50%' }}
-                        exit={{ opacity: 0, y: -20, x: '-50%' }}
-                        className="fixed top-8 left-1/2 transform -translate-x-1/2 z-50 glass-card px-8 py-6 flex items-center gap-6 border-[var(--accent-primary)] shadow-[0_0_40px_rgba(88,166,255,0.3)]"
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={{ duration: 0.18 }}
+                        className="fixed top-4 right-4 z-[110] card w-[min(22rem,calc(100vw-2rem))] p-3.5 flex items-start gap-3 shadow-[var(--shadow-lg)]"
+                        role="status"
                     >
-                        <div className="p-3 bg-[rgba(88,166,255,0.2)] rounded-full text-[var(--accent-primary)] animate-pulse">
-                            <Bell className="w-8 h-8" />
+                        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent/15 text-accent shrink-0">
+                            <Bell className="w-4 h-4" />
                         </div>
-                        <div>
-                            <h4 className="font-bold text-xl">New Ticket Detected</h4>
-                            <p className="text-sm text-[var(--text-secondary)]">Analyzing incoming issue...</p>
+                        <div className="flex-1 min-w-0">
+                            <div className="t-h3">New ticket detected</div>
+                            <p className="t-meta mt-0.5">The agent is analyzing the incoming issue.</p>
                         </div>
-                        <button onClick={() => setShowToast(false)} className="ml-6 hover:text-[var(--text-primary)]">
-                            <X className="w-6 h-6" />
+                        <button onClick={() => setShowToast(false)} className="btn btn-ghost btn-icon btn-sm -mr-1 -mt-1" aria-label="Dismiss">
+                            <X />
                         </button>
                     </motion.div>
                 )}
             </AnimatePresence>
-
-            {/* Floating Dock Navigation - Centered Bottom */}
-            <div className="fixed bottom-10 left-0 right-0 flex justify-center z-50 pointer-events-none">
-                <nav className="flex items-center gap-3 bg-[#161b22] border border-[#30363d] p-3 rounded-3xl shadow-2xl pointer-events-auto">
-                    <DockItem
-                        icon={<Brain className="w-6 h-6" />}
-                        active={activeTab === 'live'}
-                        onClick={() => setActiveTab('live')}
-                        tooltip="Live Analysis"
-                    />
-                    <DockItem
-                        icon={<Clock className="w-6 h-6" />}
-                        active={activeTab === 'queue'}
-                        onClick={() => setActiveTab('queue')}
-                        tooltip="Approval Queue"
-                        badge={queue.length}
-                    />
-                    <DockItem
-                        icon={<BarChart2 className="w-6 h-6" />}
-                        active={activeTab === 'analytics'}
-                        onClick={() => setActiveTab('analytics')}
-                        tooltip="System Analytics"
-                    />
-                    <DockItem
-                        icon={<FileText className="w-6 h-6" />}
-                        active={activeTab === 'history'}
-                        onClick={() => setActiveTab('history')}
-                        tooltip="History"
-                    />
-                </nav>
-            </div>
         </div>
     );
 }
 
 // ---------------------------------------------------------------------------
-// Metric Pill Component
+// KPI strip
 // ---------------------------------------------------------------------------
-function MetricPill({ label, value, size }) {
+function KpiStrip({ metrics, queue, onNavigate }) {
+    const tiles = [
+        { label: 'Success rate', value: metrics ? formatPercent(metrics.success_rate) : null, hint: 'Resolved without rollback', icon: Gauge, onClick: () => onNavigate('analytics'), action: 'View analytics' },
+        { label: 'Total sessions', value: metrics?.total_sessions, hint: 'Agent runs to date', icon: Layers, onClick: () => onNavigate('history'), action: 'View session history' },
+        { label: 'Active sessions', value: metrics?.active_sessions, hint: 'Currently in workflow', icon: Activity, onClick: () => onNavigate('live', 'active'), action: 'Show active incidents' },
+        { label: 'Pending approvals', value: metrics ? queue.length : null, hint: 'Awaiting human review', icon: ShieldAlert, tone: queue.length > 0 ? 'warning' : null, onClick: () => onNavigate('queue'), action: 'Open approval queue' },
+    ];
+
     return (
-        <div className={`
-            glass-panel rounded-full flex items-center gap-4 border border-[#30363d] bg-[#161b22]
-            ${size === 'large' ? 'px-8 py-4' : 'px-5 py-3'}
-        `}>
-            <span className={`text-[#8b949e] uppercase tracking-[0.05em] font-medium ${size === 'large' ? 'text-sm' : 'text-xs'}`}>{label}</span>
-            <span className={`font-bold text-white ${size === 'large' ? 'text-2xl' : 'text-lg'}`}>{value}</span>
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
+            {tiles.map((t) => <KpiTile key={t.label} {...t} />)}
         </div>
     );
 }
 
-// ---------------------------------------------------------------------------
-// Dock Item Component
-// ---------------------------------------------------------------------------
-function DockItem({ icon, active, onClick, tooltip, badge }) {
+function KpiTile({ label, value, hint, icon: Icon, tone, onClick, action }) {
+    const Wrapper = onClick ? 'button' : 'div';
+    const interactiveProps = onClick
+        ? { type: 'button', onClick, title: action, 'aria-label': `${label}: ${value ?? 'loading'}. ${action}` }
+        : {};
     return (
-        <motion.button
-            className={`
-                relative p-4 rounded-2xl transition-colors duration-200 group
-                ${active ? 'bg-[var(--accent-primary)] text-white' : 'text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.08)]'}
-            `}
-            onClick={onClick}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            transition={buttonSpring}
+        <Wrapper
+            {...interactiveProps}
+            className={`card px-4 py-3.5 text-left w-full ${onClick ? 'card-interactive group' : ''}`}
         >
-            {icon}
-            {tooltip && (
-                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 px-4 py-2 bg-black text-white text-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none">
-                    {tooltip}
-                </span>
+            <div className="flex items-center justify-between gap-2">
+                <span className="t-overline sm:truncate">{label}</span>
+                {Icon && (
+                    <span className="hidden sm:block relative w-4 h-4 shrink-0">
+                        <Icon className={`absolute inset-0 w-4 h-4 transition-opacity ${onClick ? 'group-hover:opacity-0 group-focus-visible:opacity-0' : ''} ${tone === 'warning' ? 'text-warning' : 'text-fg-subtle'}`} />
+                        {onClick && <ArrowUpRight className="absolute inset-0 w-4 h-4 text-accent opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />}
+                    </span>
+                )}
+            </div>
+            {value === null || value === undefined ? (
+                <div className="skeleton h-7 w-16 mt-2" />
+            ) : (
+                <div className={`text-2xl leading-8 font-semibold t-num mt-1.5 ${tone === 'warning' ? 'text-warning' : 'text-fg'}`}>{value}</div>
             )}
-            {badge > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center border-2 border-[#161b22]">
-                    {badge}
-                </span>
-            )}
-        </motion.button>
+            {hint && <div className="t-meta mt-0.5 sm:truncate">{hint}</div>}
+        </Wrapper>
     );
 }
 
 // ---------------------------------------------------------------------------
 // Live Analysis View with Card Grid
 // ---------------------------------------------------------------------------
-function LiveAnalysisView({ history, activeResult, setActiveResult, handleApproval }) {
+function LiveAnalysisView({ history, hasLoaded, filter, setFilter, sectionRef, setActiveResult, handleSeedDemo, isSeeding }) {
+    if (!hasLoaded) return <SkeletonGrid />;
+
+    if (history.length === 0) {
+        return (
+            <EmptyState
+                icon={Activity}
+                title="No active incidents"
+                description="The agent is listening for incoming tickets and monitoring webhooks. Load the demo set to populate the console with six sample incidents."
+            >
+                <button onClick={handleSeedDemo} disabled={isSeeding} className="btn btn-primary">
+                    <Database />
+                    {isSeeding ? 'Loading tickets…' : 'Load demo tickets'}
+                </button>
+                <a href="/merchant.html" className="btn btn-secondary">
+                    Open merchant portal
+                    <ExternalLink />
+                </a>
+            </EmptyState>
+        );
+    }
+
+    const activeFilter = INCIDENT_FILTERS[filter] || INCIDENT_FILTERS.all;
+    const visible = history.filter(activeFilter.test);
+
     return (
         <>
-            {/* Card Grid */}
-            {history.length === 0 ? (
-                <SkeletonGrid />
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 w-full">
-                    <AnimatePresence mode="popLayout">
-                        {history.map((session, index) => (
-                            <TiltCard
-                                key={session.session_id || session.id}
-                                session={session}
-                                onClick={() => setActiveResult(session)}
-                                index={index}
-                            />
-                        ))}
-                    </AnimatePresence>
+            <div ref={sectionRef} className="scroll-mt-28 flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2">
+                    <h2 className="t-h2">Incidents</h2>
+                    <span className="badge badge-neutral t-num">{visible.length}</span>
                 </div>
+                <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-surface border border-line" role="tablist" aria-label="Filter incidents">
+                    {Object.entries(INCIDENT_FILTERS).map(([key, f]) => {
+                        const count = history.filter(f.test).length;
+                        const selected = filter === key;
+                        return (
+                            <button
+                                key={key}
+                                role="tab"
+                                aria-selected={selected}
+                                onClick={() => setFilter(key)}
+                                className={`h-7 px-2.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${selected ? 'bg-surface-3 text-fg shadow-[inset_0_0_0_1px_var(--color-line-strong)]' : 'text-fg-muted hover:text-fg'}`}
+                            >
+                                {f.label}
+                                <span className={`t-num ${selected ? 'text-fg-muted' : 'text-fg-subtle'}`}>{count}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {visible.length === 0 && (
+                <EmptyState
+                    icon={CheckCircle2}
+                    title={`No ${activeFilter.label.toLowerCase()} incidents`}
+                    description="Nothing in this view right now."
+                >
+                    <button onClick={() => setFilter('all')} className="btn btn-secondary btn-sm">Show all incidents</button>
+                </EmptyState>
             )}
 
-            {/* Expanded Card Overlay - CENTERED */}
-            <AnimatePresence>
-                {activeResult && (
-                    <ExpandedSessionView
-                        session={activeResult}
-                        onClose={() => setActiveResult(null)}
-                        handleApproval={handleApproval}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {visible.map((session, index) => (
+                    <IncidentCard
+                        key={session.session_id || session.id}
+                        session={session}
+                        onClick={() => setActiveResult(session)}
+                        index={index}
                     />
-                )}
-            </AnimatePresence>
+                ))}
+            </div>
+
         </>
     );
 }
 
 // ---------------------------------------------------------------------------
-// Tilt Card Component with 3D Hover Effect
+// Incident card
 // ---------------------------------------------------------------------------
-function TiltCard({ session, onClick, index }) {
-    const cardRef = useRef(null);
-    const [tilt, setTilt] = useState({ x: 0, y: 0 });
-
-    const handleMouseMove = (e) => {
-        if (!cardRef.current) return;
-        const rect = cardRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const centerX = rect.width / 2;
-        const centerY = rect.height / 2;
-
-        const rotateX = (y - centerY) / 20; // Reduced sensitivity
-        const rotateY = (centerX - x) / 20;
-
-        setTilt({ x: rotateX, y: rotateY });
-    };
-
-    const handleMouseLeave = () => {
-        setTilt({ x: 0, y: 0 });
-    };
-
+function IncidentCard({ session, onClick, index }) {
     const isEmergency = session.is_emergency || session.abnormal_pattern || session.volume_spike;
+    const sessionId = session.session_id || session.id;
 
     return (
-        <motion.div
-            ref={cardRef}
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ delay: index * 0.05, ...springConfig }}
+        <button
+            type="button"
             onClick={onClick}
-            onMouseMove={handleMouseMove}
-            onMouseLeave={handleMouseLeave}
-            style={{
-                transform: `perspective(1000px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
-                transformStyle: 'preserve-3d'
-            }}
-            className={`
-                glass-card p-8 cursor-pointer relative overflow-hidden min-h-[240px] flex flex-col justify-between
-                ${isEmergency ? 'border-l-8 border-l-[var(--accent-danger)]' : 'border-l-0'}
-                hover:border-[var(--accent-primary)] border border-transparent transition-colors
-            `}
-            whileHover={{ scale: 1.02, zIndex: 10 }}
-            whileTap={{ scale: 0.98 }}
+            className="card card-interactive animate-enter relative overflow-hidden text-left p-4 flex flex-col h-full min-h-[204px]"
+            style={{ animationDelay: `${Math.min(index, 8) * 30}ms` }}
         >
-            {/* Shine overlay on hover */}
-            <div
-                className="absolute inset-0 pointer-events-none opacity-0 hover:opacity-100 transition-opacity z-0"
-                style={{
-                    background: 'linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.05) 45%, transparent 50%)'
-                }}
-            />
+            {isEmergency && <span className="absolute left-0 inset-y-0 w-[3px] bg-danger" aria-hidden />}
 
-            <div className="relative z-10 w-full">
-                <div className="flex justify-between items-start mb-4">
-                    <span className="text-xl font-bold text-[var(--text-primary)] line-clamp-1 flex-1 mr-4">
-                        {session.diagnosis?.root_cause?.replace(/_/g, ' ') || "Analyzing..."}
-                    </span>
+            <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-1.5 min-w-0">
                     <RiskBadge level={session.risk} />
+                    {session.is_systemic && <span className="badge badge-neutral">Systemic</span>}
+                    {isEmergency && (
+                        <span className="badge badge-danger">
+                            <Zap />
+                            Spike
+                        </span>
+                    )}
                 </div>
-
-                <p className="text-base text-[var(--text-secondary)] line-clamp-3 leading-relaxed mb-6">
-                    {session.explanation?.substring(0, 150) || "Processing diagnostic logic..."}
-                </p>
+                <span className="t-mono text-fg-subtle truncate">{sessionId}</span>
             </div>
 
-            <div className="relative z-10 w-full flex items-center justify-between text-xs text-[var(--text-tertiary)] mt-auto pt-4 border-t border-[rgba(255,255,255,0.05)]">
-                <span className="font-mono tracking-wider">
-                    ID: {(session.session_id || session.id)?.substring(0, 8)}
-                </span>
-                <StatusBadge status={session.status} />
+            <h3 className="t-h3 mt-3 line-clamp-1">
+                {humanize(session.diagnosis?.root_cause, 'Analyzing…')}
+            </h3>
+            <p className="t-body text-[13px] leading-5 mt-1 line-clamp-3">
+                {session.client_message || session.explanation || 'Processing diagnostic logic…'}
+            </p>
+
+            <MerchantTag merchantId={session.merchant_id} source={session.source} className="mt-3" />
+
+            <div className="mt-auto pt-3">
+                <div className="flex items-center justify-between gap-3 pt-3 border-t border-line">
+                    <StatusBadge status={session.status} />
+                    <div className="flex items-center gap-2 min-w-0">
+                        <span className="t-meta hidden 2xl:inline">Confidence</span>
+                        <ConfidenceMeter value={session.diagnosis?.confidence} className="w-24 shrink-0" />
+                    </div>
+                </div>
             </div>
-        </motion.div>
+        </button>
     );
 }
 
 // ---------------------------------------------------------------------------
-// Expanded Session View (Modal Overlay)
+// Expanded Session View (Modal)
 // ---------------------------------------------------------------------------
+function parseFix(raw) {
+    if (!raw) return null;
+    try {
+        const fixData = JSON.parse(raw);
+        return fixData.content || raw;
+    } catch {
+        return raw;
+    }
+}
+
 function ExpandedSessionView({ session, onClose, handleApproval }) {
-    // Prevent scrolling on body when modal is open
+    // Prevent scrolling on body when modal is open; close on Escape
     useEffect(() => {
         document.body.style.overflow = 'hidden';
-        return () => { document.body.style.overflow = 'unset'; };
-    }, []);
+        const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => {
+            document.body.style.overflow = 'unset';
+            window.removeEventListener('keydown', onKey);
+        };
+    }, [onClose]);
+
+    const sessionId = session.session_id || session.id;
+    const approvalId = session.approval_id || session.session_id || session.id;
+    const fix = parseFix(session.recommended_action);
+    const confidence = session.diagnosis?.confidence;
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 sm:p-16">
-            {/* Backdrop */}
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center sm:p-6" role="dialog" aria-modal="true" aria-label="Incident report">
             <motion.div
-                className="absolute inset-0 bg-[#000000]/80 backdrop-blur-md"
+                className="absolute inset-0 bg-black/70 backdrop-blur-sm"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
                 onClick={onClose}
             />
 
-            {/* Expanded Card */}
             <motion.div
-                className="relative w-full max-w-5xl bg-[#161b22] border border-[#30363d] shadow-[0_0_100px_rgba(0,0,0,0.7)] rounded-3xl overflow-hidden flex flex-col max-h-[85vh]"
-                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                transition={springConfig}
+                className="relative w-full sm:max-w-3xl bg-surface border border-line-strong rounded-t-2xl sm:rounded-2xl shadow-[var(--shadow-lg)] overflow-hidden flex flex-col max-h-[92vh] sm:max-h-[88vh]"
+                initial={{ opacity: 0, y: 12, scale: 0.99 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 12, scale: 0.99 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
             >
                 {/* Header */}
-                <div className="bg-[#0d1117] p-8 border-b border-[#30363d] flex justify-between items-start shrink-0">
-                    <div>
-                        <div className="flex items-center gap-4 mb-3">
-                            <h3 className="text-3xl font-bold text-white">Diagnostic Report</h3>
-                            {session.diagnosis?.confidence && (
-                                <span className="text-sm bg-[#1f6feb]/20 px-3 py-1 rounded-full text-[#58a6ff] font-mono border border-[#1f6feb]/40">
-                                    {(session.diagnosis.confidence * 100).toFixed(0)}% Confidence
-                                </span>
+                <div className="px-5 sm:px-6 py-4 border-b border-line flex items-start justify-between gap-4 shrink-0">
+                    <div className="min-w-0">
+                        <div className="t-overline">Incident report</div>
+                        <h2 className="t-h1 mt-0.5 truncate">{humanize(session.diagnosis?.root_cause, 'Pending diagnosis')}</h2>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-2">
+                            <StatusBadge status={session.status} />
+                            <RiskBadge level={session.risk} />
+                            <span className="t-mono text-fg-subtle">{sessionId}</span>
+                            {session.started_at && <span className="t-meta">{formatDateTime(session.started_at)}</span>}
+                        </div>
+                        <MerchantTag merchantId={session.merchant_id} source={session.source} className="mt-2" />
+                    </div>
+                    <button onClick={onClose} className="btn btn-ghost btn-icon shrink-0 -mr-2" aria-label="Close">
+                        <X />
+                    </button>
+                </div>
+
+                {/* Body */}
+                <div className="px-5 sm:px-6 py-5 space-y-5 overflow-y-auto">
+                    {/* Reporter + original ticket */}
+                    <section>
+                        <SectionLabel>Reported by</SectionLabel>
+                        <div className="well overflow-hidden">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-line">
+                                <ReporterCell label="Merchant"><span className="t-mono text-fg">{session.merchant_id || 'unknown'}</span></ReporterCell>
+                                <ReporterCell label="Channel">{sourceLabel(session.source)}</ReporterCell>
+                                <ReporterCell label="Received">{formatDateTime(session.started_at)}</ReporterCell>
+                            </div>
+                            {session.client_message && (
+                                <div className="border-t border-line px-3.5 py-3 flex gap-2.5">
+                                    <Quote className="w-3.5 h-3.5 mt-1 shrink-0 text-fg-subtle" />
+                                    <p className="text-[13px] leading-5 text-fg whitespace-pre-wrap break-words">{session.client_message}</p>
+                                </div>
                             )}
                         </div>
-                        <p className="text-base text-[#8b949e] font-mono">
-                            SESSION_ID: <span className="text-[#c9d1d9]">{session.session_id || session.id}</span>
-                        </p>
-                    </div>
-                    <motion.button
-                        onClick={onClose}
-                        className="p-3 rounded-xl bg-[#21262d] text-[#c9d1d9] hover:bg-[#30363d] hover:text-white transition-colors"
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.95 }}
-                        transition={buttonSpring}
-                    >
-                        <X className="w-6 h-6" />
-                    </motion.button>
-                </div>
+                    </section>
 
-                {/* Scrollable Content */}
-                <div className="p-8 space-y-8 overflow-y-auto">
-                    {/* Analysis Grid */}
-                    <div className="grid grid-cols-2 gap-8">
-                        <div className="bg-[#0d1117] border border-[#30363d] p-6 rounded-2xl">
-                            <div className="text-sm text-[#8b949e] uppercase tracking-wider mb-2 font-semibold">Root Cause</div>
-                            <div className="text-xl font-medium text-[#c9d1d9]">
-                                {session.diagnosis?.root_cause?.replace(/_/g, ' ') || "Pending"}
+                    {/* Workflow */}
+                    <section>
+                        <SectionLabel>Agent workflow</SectionLabel>
+                        <div className="well no-scrollbar px-4 pt-3.5 pb-3 overflow-x-auto">
+                            <div className="min-w-[600px] sm:min-w-0">
+                                <WorkflowStepper status={session.status} requiresApproval={session.requires_approval} />
                             </div>
                         </div>
-                        <div className="bg-[#0d1117] border border-[#30363d] p-6 rounded-2xl">
-                            <div className="text-sm text-[#8b949e] uppercase tracking-wider mb-2 font-semibold">Risk Level</div>
-                            <div className="flex items-center gap-3">
-                                <div className={`w-3 h-3 rounded-full ${session.risk === 'high' ? 'bg-[#f85149]' : 'bg-[#3fb950]'}`} />
-                                <span className="text-xl font-medium text-[#c9d1d9] capitalize">{session.risk || 'Low'}</span>
-                            </div>
-                        </div>
-                    </div>
+                    </section>
 
-                    {/* AI Reasoning */}
-                    <div className="rounded-2xl border border-[#30363d] overflow-hidden bg-[#0d1117]">
-                        <div className="flex items-center justify-between px-6 py-3 border-b border-[#30363d] bg-[#161b22]">
-                            <div className="flex items-center gap-3">
-                                <div className="flex gap-1.5">
-                                    <div className="w-3 h-3 rounded-full bg-[#fa7970]" />
-                                    <div className="w-3 h-3 rounded-full bg-[#faa356]" />
-                                    <div className="w-3 h-3 rounded-full bg-[#7ce38b]" />
+                    {/* Assessment summary */}
+                    <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <SummaryCell label="Root cause">
+                            <span className="text-sm font-medium text-fg">{humanize(session.diagnosis?.root_cause, 'Pending')}</span>
+                        </SummaryCell>
+                        <SummaryCell label="Risk assessment">
+                            <span className="flex items-center gap-2 text-sm font-medium text-fg">
+                                <span className="w-2 h-2 rounded-full" style={{ background: RISK_COLORS[session.risk] || RISK_COLORS.low }} />
+                                {humanize(session.risk, 'Low')}
+                                {session.is_systemic && <span className="t-meta font-normal">· systemic</span>}
+                            </span>
+                        </SummaryCell>
+                        <SummaryCell label="Diagnosis confidence">
+                            <ConfidenceMeter value={confidence} className="mt-1" />
+                        </SummaryCell>
+                    </section>
+
+                    {/* Reasoning */}
+                    <section>
+                        <SectionLabel>Diagnostic reasoning</SectionLabel>
+                        <div className="code-block">
+                            <div className="code-block-header">
+                                <span className="flex items-center gap-2"><Brain className="w-3.5 h-3.5" />agent_reasoning.log</span>
+                            </div>
+                            <div className="code-block-body">{session.explanation || '// Awaiting analysis…'}</div>
+                        </div>
+                    </section>
+
+                    {/* Proposed fix */}
+                    {fix && (
+                        <section>
+                            <SectionLabel>Proposed fix</SectionLabel>
+                            <div className="rounded-lg border border-success/30 bg-success/[0.04] overflow-hidden">
+                                <div className="flex items-center justify-between gap-2 h-[34px] px-3 border-b border-success/20 bg-success/[0.07]">
+                                    <span className="flex items-center gap-2 text-xs font-medium text-success">
+                                        <Sparkles className="w-3.5 h-3.5" />
+                                        Recommended action
+                                    </span>
+                                    {session.action_type && <span className="t-mono text-fg-subtle">{session.action_type}</span>}
                                 </div>
-                                <span className="ml-4 text-sm text-[#8b949e] font-mono">agent_reasoning.log</span>
+                                <div className="code-block-body text-fg">{fix}</div>
                             </div>
-                        </div>
-                        <div className="p-6 text-[#c9d1d9] font-mono text-sm leading-relaxed whitespace-pre-wrap">
-                            {session.explanation || "// Awaiting analysis..."}
-                        </div>
-                    </div>
-
-                    {/* Proposed Solution */}
-                    {session.recommended_action && (
-                        <div className="rounded-2xl border border-[#2ea043] overflow-hidden bg-[rgba(46,160,67,0.05)]">
-                            <div className="flex items-center gap-3 px-6 py-3 border-b border-[#2ea043]/30 bg-[rgba(46,160,67,0.1)]">
-                                <CheckCircle className="w-5 h-5 text-[#3fb950]" />
-                                <span className="text-sm text-[#3fb950] font-bold font-mono">PROPOSED_SOLUTION</span>
-                            </div>
-                            <div className="p-6 font-mono text-base text-[#e6edf3] whitespace-pre-wrap">
-                                {(() => {
-                                    try {
-                                        const fixData = JSON.parse(session.recommended_action);
-                                        return fixData.content || session.recommended_action;
-                                    } catch {
-                                        return session.recommended_action;
-                                    }
-                                })()}
-                            </div>
-                        </div>
+                        </section>
                     )}
+
+                    {/* Retrieved evidence */}
+                    {session.evidence?.length > 0 && (
+                        <section>
+                            <SectionLabel>Retrieved evidence</SectionLabel>
+                            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {session.evidence.map((ev, i) => (
+                                    <li key={i} className="well px-3 py-2.5 min-w-0">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="t-mono text-fg-muted truncate">{ev.source}</span>
+                                            {ev.score > 0 && <span className="t-mono text-fg-subtle t-num shrink-0">{ev.score.toFixed(2)}</span>}
+                                        </div>
+                                        <p className="t-meta mt-1 line-clamp-3 break-words">{ev.snippet}</p>
+                                    </li>
+                                ))}
+                            </ul>
+                        </section>
+                    )}
+
+                    {/* Activity log */}
+                    <section>
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="t-overline">Activity log</div>
+                            {session.activity_log?.length > 0 && <span className="t-meta t-num">{session.activity_log.length} events</span>}
+                        </div>
+                        <div className="code-block">
+                            <div className="code-block-header">
+                                <span className="flex items-center gap-2"><ScrollText className="w-3.5 h-3.5" />session_{sessionId}.log</span>
+                                <span>time · stage · event · duration</span>
+                            </div>
+                            <div className="max-h-72 overflow-y-auto">
+                                <ActivityLog
+                                    entries={session.activity_log}
+                                    emptyText={session.activity_log ? 'No activity recorded yet.' : 'Loading activity…'}
+                                />
+                            </div>
+                        </div>
+                        {(session.error || session.rejection_reason) && (
+                            <p className="t-meta mt-2 text-[#ff8a8a]">{session.error || `Rejected: ${session.rejection_reason}`}</p>
+                        )}
+                    </section>
                 </div>
 
-                {/* Footer / Approval Actions */}
+                {/* Approval footer */}
                 {session.status === 'awaiting_approval' && (
-                    <div className="p-8 border-t border-[#30363d] bg-[#161b22] flex items-center justify-between shrink-0">
-                        <div className="flex items-center gap-6">
-                            <div className="p-4 bg-[rgba(210,153,34,0.15)] rounded-2xl text-[#d29922] animate-pulse">
-                                <AlertTriangle className="w-8 h-8" />
+                    <div className="px-5 sm:px-6 py-4 border-t border-line bg-surface-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+                        <div className="flex items-start gap-3 min-w-0">
+                            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-warning/15 text-warning shrink-0">
+                                <AlertTriangle className="w-4 h-4" />
                             </div>
-                            <div>
-                                <h4 className="text-xl font-bold text-white">Approval Required</h4>
-                                <p className="text-[#8b949e]">Review the proposed solution above before proceeding.</p>
+                            <div className="min-w-0">
+                                <div className="t-h3">Human approval required</div>
+                                <p className="t-meta mt-0.5">Review the reasoning and proposed fix before it is dispatched.</p>
                             </div>
                         </div>
-                        <div className="flex gap-4">
-                            <ScaleButton
-                                onClick={() => handleApproval(session.approval_id || session.session_id || session.id, true)}
-                                variant="success"
-                            >
-                                <ThumbsUp className="w-5 h-5" /> Approve Fix
-                            </ScaleButton>
-                            <ScaleButton
-                                onClick={() => handleApproval(session.approval_id || session.session_id || session.id, false)}
-                                variant="danger"
-                            >
-                                <ThumbsDown className="w-5 h-5" /> Reject
-                            </ScaleButton>
+                        <div className="flex gap-2 shrink-0">
+                            <button onClick={() => handleApproval(approvalId, false)} className="btn btn-danger-outline flex-1 sm:flex-none">
+                                <ThumbsDown /> Reject
+                            </button>
+                            <button onClick={() => handleApproval(approvalId, true)} className="btn btn-success flex-1 sm:flex-none">
+                                <ThumbsUp /> Approve fix
+                            </button>
                         </div>
                     </div>
                 )}
             </motion.div>
+        </div>
+    );
+}
+
+function ReporterCell({ label, children }) {
+    return (
+        <div className="px-3.5 py-2.5 min-w-0">
+            <div className="t-overline mb-0.5">{label}</div>
+            <div className="text-[13px] leading-5 font-medium text-fg truncate">{children}</div>
+        </div>
+    );
+}
+
+function SummaryCell({ label, children }) {
+    return (
+        <div className="well px-3.5 py-3">
+            <div className="t-overline mb-1.5">{label}</div>
+            {children}
         </div>
     );
 }
@@ -533,273 +735,331 @@ function ExpandedSessionView({ session, onClose, handleApproval }) {
 // ---------------------------------------------------------------------------
 // Queue View
 // ---------------------------------------------------------------------------
-function QueueView({ queue, handleApproval }) {
+function QueueView({ queue, handleApproval, onOpen }) {
     if (queue.length === 0) {
-        return <EmptyState message="No actions pending approval" />;
+        return (
+            <EmptyState
+                icon={CheckCircle2}
+                title="Queue is clear"
+                description="No proposed fixes are waiting for approval. High-risk or low-confidence actions will appear here."
+            />
+        );
     }
 
     return (
-        <div className="grid grid-cols-1 gap-6 max-w-5xl mx-auto">
-            {queue.map((item, index) => (
-                <motion.div
-                    key={item.id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.1, ...springConfig }}
-                    className="glass-card p-8 border-l-8 border-[var(--accent-warning)] flex flex-col gap-6"
-                >
-                    <div className="flex justify-between items-start">
-                        <div className="flex items-center gap-6">
-                            <div className="p-4 bg-[rgba(210,153,34,0.15)] rounded-2xl text-[var(--accent-warning)]">
-                                <AlertTriangle className="w-8 h-8" />
+        <div className="max-w-4xl space-y-3">
+            {queue.map((item, index) => {
+                const risk = item.risk || item.risk_assessment?.risk_level;
+                return (
+                    <article
+                        key={item.id}
+                        className="card overflow-hidden animate-enter"
+                        style={{ animationDelay: `${index * 40}ms` }}
+                    >
+                        <div className="px-5 pt-4 pb-3 flex items-start justify-between gap-4">
+                            <div className="flex items-start gap-3 min-w-0">
+                                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-warning/15 text-warning shrink-0 mt-0.5">
+                                    <ShieldAlert className="w-4 h-4" />
+                                </div>
+                                <div className="min-w-0">
+                                    <button onClick={() => onOpen(item.session_id)} className="t-h3 truncate hover:text-accent transition-colors text-left">
+                                        {humanize(item.diagnosis?.root_cause, 'Pending approval')}
+                                    </button>
+                                    <MerchantTag merchantId={item.merchant_id} source={item.source} className="mt-1 flex" />
+                                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 t-meta">
+                                        {item.session_id && <span className="t-mono">{item.session_id}</span>}
+                                        <span aria-hidden>·</span>
+                                        <span>{formatDateTime(item.created_at)}</span>
+                                        {item.proposed_action?.type && (
+                                            <>
+                                                <span aria-hidden>·</span>
+                                                <span>{humanize(item.proposed_action.type)}</span>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
-                            <div>
-                                <h4 className="text-2xl font-bold text-[var(--text-primary)]">Pending Approval</h4>
-                                <p className="text-sm text-[var(--text-secondary)] mt-1">{new Date(item.created_at).toLocaleString()}</p>
+                            <div className="flex items-center gap-2 shrink-0">
+                                {item.diagnosis?.confidence !== undefined && (
+                                    <span className="badge badge-neutral t-num hidden sm:inline-flex">{formatPercent(item.diagnosis.confidence)} conf.</span>
+                                )}
+                                {risk && <RiskBadge level={risk} />}
                             </div>
                         </div>
-                    </div>
 
-                    <div className="code-window">
-                        <div className="code-window-header">
-                            <span className="text-xs font-mono text-[var(--text-secondary)]">DRAFT_RESPONSE.md</span>
+                        <div className="px-5 pb-4 space-y-3">
+                            {item.explanation && <p className="t-body">{item.explanation}</p>}
+                            <div className="code-block">
+                                <div className="code-block-header">
+                                    <span>draft_response.md</span>
+                                    {item.proposed_action?.target && <span>target: {item.proposed_action.target}</span>}
+                                </div>
+                                <div className="code-block-body">
+                                    {item.proposed_action?.draft_content || JSON.stringify(item.proposed_action, null, 2)}
+                                </div>
+                            </div>
                         </div>
-                        <div className="p-6 text-sm font-mono text-[var(--text-primary)] whitespace-pre-wrap leading-relaxed">
-                            {item.proposed_action?.draft_content || JSON.stringify(item.proposed_action, null, 2)}
-                        </div>
-                    </div>
 
-                    <div className="flex gap-4 border-t border-[rgba(255,255,255,0.05)] pt-6">
-                        <ScaleButton onClick={() => handleApproval(item.id, true)} variant="success" fullWidth>
-                            <ThumbsUp className="w-5 h-5" /> Approve Action
-                        </ScaleButton>
-                        <ScaleButton onClick={() => handleApproval(item.id, false)} variant="danger" fullWidth>
-                            <ThumbsDown className="w-5 h-5" /> Reject Action
-                        </ScaleButton>
-                    </div>
-                </motion.div>
-            ))}
+                        <div className="px-5 py-3 border-t border-line bg-surface-2/60 flex justify-end gap-2">
+                            <button onClick={() => handleApproval(item.id, false)} className="btn btn-danger-outline btn-sm">
+                                <ThumbsDown /> Reject
+                            </button>
+                            <button onClick={() => handleApproval(item.id, true)} className="btn btn-success btn-sm">
+                                <ThumbsUp /> Approve action
+                            </button>
+                        </div>
+                    </article>
+                );
+            })}
         </div>
     );
 }
 
 // ---------------------------------------------------------------------------
-// Analytics View (Restored Functionality)
+// Analytics View
 // ---------------------------------------------------------------------------
-function AnalyticsView({ analytics }) {
-    if (!analytics) return <EmptyState message="Loading analytics..." />;
+const tooltipStyle = {
+    contentStyle: {
+        backgroundColor: '#151920',
+        border: '1px solid #2d3440',
+        borderRadius: 8,
+        color: '#e6e9ef',
+        fontSize: 12,
+        padding: '6px 10px',
+    },
+    itemStyle: { color: '#e6e9ef' },
+    labelStyle: { color: '#9ba3b1', marginBottom: 2 },
+};
+
+function AnalyticsView({ analytics, onNavigate }) {
+    if (!analytics) {
+        return (
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                {[0, 1, 2, 3].map((i) => <div key={i} className="card h-[92px] skeleton" />)}
+            </div>
+        );
+    }
 
     const pieData = analytics.risk_profile ? Object.keys(analytics.risk_profile).map(k => ({
         name: k, value: analytics.risk_profile[k]
     })) : [];
+    const pieTotal = pieData.reduce((sum, d) => sum + d.value, 0);
 
     const barData = analytics.issue_distribution ? Object.keys(analytics.issue_distribution).map(k => ({
         name: k.replace(/_/g, ' '), count: analytics.issue_distribution[k]
     })) : [];
 
-    const COLORS = ['#3fb950', '#d29922', '#f85149', '#58a6ff'];
-
     return (
-        <div className="space-y-8 animate-enter pb-20">
-            {/* Stat Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <MetricCard label="Total Tickets" value={analytics.total_tickets} delay={0} />
-                <MetricCard label="Resolved" value={analytics.resolved_count} delay={0.1} />
-                <MetricCard label="Success Rate" value={`${(analytics.success_rate * 100).toFixed(0)}%`} delay={0.2} />
-                <MetricCard label="Avg. Confidence" value={`${(analytics.avg_confidence * 100).toFixed(0)}%`} delay={0.3} />
+        <div className="space-y-4 animate-enter">
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                <KpiTile label="Total tickets" value={analytics.total_tickets} hint="Ingested across all channels" icon={Inbox} onClick={() => onNavigate('history')} action="View session history" />
+                <KpiTile label="Resolved" value={analytics.resolved_count} hint="Completed or dispatched" icon={CheckCircle2} onClick={() => onNavigate('history')} action="View session history" />
+                <KpiTile label="Success rate" value={formatPercent(analytics.success_rate)} hint="Resolved / total" icon={Gauge} />
+                <KpiTile label="Avg. confidence" value={formatPercent(analytics.avg_confidence)} hint="Mean diagnosis confidence" icon={Brain} />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Risk Distribution */}
-                <div className="glass-card p-8">
-                    <h3 className="text-2xl font-bold mb-8 text-[var(--text-primary)]">Risk Severity Profile</h3>
-                    <div className="h-80">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={pieData}
-                                    cx="50%" cy="50%"
-                                    innerRadius={80}
-                                    outerRadius={100}
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                >
-                                    {pieData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip
-                                    contentStyle={{ backgroundColor: '#0d1117', borderColor: '#30363d', color: '#f0f6fc' }}
-                                    itemStyle={{ color: '#f0f6fc' }}
-                                />
-                            </PieChart>
-                        </ResponsiveContainer>
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                {/* Risk distribution */}
+                <section className="card lg:col-span-2">
+                    <div className="card-header">
+                        <h3 className="t-h2">Risk severity profile</h3>
+                        <span className="t-meta t-num">{pieTotal} sessions</span>
                     </div>
-                </div>
+                    <div className="p-5 flex flex-col sm:flex-row lg:flex-col xl:flex-row items-center gap-6">
+                        <div className="relative w-44 h-44 shrink-0">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={58} outerRadius={80} paddingAngle={pieTotal ? 3 : 0} dataKey="value" stroke="none" isAnimationActive={false}>
+                                        {pieData.map((entry) => (
+                                            <Cell key={entry.name} fill={RISK_COLORS[entry.name] || '#4c8dff'} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip {...tooltipStyle} />
+                                </PieChart>
+                            </ResponsiveContainer>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                <span className="text-2xl font-semibold t-num leading-none">{pieTotal}</span>
+                                <span className="t-meta mt-1">total</span>
+                            </div>
+                        </div>
+                        <ul className="w-full space-y-2">
+                            {pieData.map((d) => (
+                                <li key={d.name} className="flex items-center gap-3 text-[13px]">
+                                    <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: RISK_COLORS[d.name] || '#4c8dff' }} />
+                                    <span className="text-fg-muted flex-1">{humanize(d.name)}</span>
+                                    <span className="font-medium t-num text-fg">{d.value}</span>
+                                    <span className="t-meta t-num w-10 text-right">{pieTotal ? Math.round((d.value / pieTotal) * 100) : 0}%</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                </section>
 
-                {/* Issue Type Distribution */}
-                <div className="glass-card p-8">
-                    <h3 className="text-2xl font-bold mb-8 text-[var(--text-primary)]">Issue Distribution</h3>
-                    <div className="h-80">
+                {/* Issue type distribution */}
+                <section className="card lg:col-span-3">
+                    <div className="card-header">
+                        <h3 className="t-h2">Issue distribution by root cause</h3>
+                        <span className="t-meta">Sessions per category</span>
+                    </div>
+                    <div className="p-5 h-[260px]">
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={barData} layout="vertical" margin={{ left: 20 }}>
-                                <XAxis type="number" hide />
-                                <YAxis dataKey="name" type="category" width={140} tick={{ fill: '#8b949e', fontSize: 12 }} />
-                                <Tooltip
-                                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                                    contentStyle={{ backgroundColor: '#0d1117', borderColor: '#30363d', color: '#f0f6fc' }}
-                                />
-                                <Bar dataKey="count" fill="#58a6ff" radius={[0, 6, 6, 0]} barSize={30} />
+                            <BarChart data={barData} layout="vertical" margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
+                                <CartesianGrid horizontal={false} stroke="#222832" />
+                                <XAxis type="number" allowDecimals={false} tick={{ fill: '#677080', fontSize: 11 }} axisLine={false} tickLine={false} />
+                                <YAxis dataKey="name" type="category" width={190} tick={{ fill: '#9ba3b1', fontSize: 12 }} axisLine={false} tickLine={false} />
+                                <Tooltip cursor={{ fill: 'rgba(255,255,255,0.03)' }} {...tooltipStyle} />
+                                <Bar dataKey="count" name="Sessions" fill="#4c8dff" radius={[0, 4, 4, 0]} barSize={18} isAnimationActive={false} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
-                </div>
+                </section>
             </div>
         </div>
-    );
-}
-
-function MetricCard({ label, value, delay }) {
-    return (
-        <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay, ...springConfig }}
-            className="glass-card p-8"
-        >
-            <p className="text-sm text-[var(--text-secondary)] uppercase tracking-wider mb-3">{label}</p>
-            <p className="text-4xl font-bold text-[var(--text-primary)]">{value}</p>
-        </motion.div>
     );
 }
 
 // ---------------------------------------------------------------------------
 // History View
 // ---------------------------------------------------------------------------
-function HistoryView({ history }) {
+function HistoryView({ history, onOpen }) {
+    if (history.length === 0) {
+        return <EmptyState icon={FileText} title="No sessions yet" description="Completed and in-flight agent sessions will be listed here." />;
+    }
+
     return (
-        <div className="space-y-4 max-w-5xl mx-auto pb-20">
-            {history.map((session, index) => (
-                <motion.div
-                    key={session.session_id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05, ...springConfig }}
-                    className="glass-card p-6 flex justify-between items-center hover:bg-[#21262d] transition-colors"
-                >
-                    <div className="flex items-center gap-6">
-                        <StatusBadge status={session.status} large />
-                        <div>
-                            <h4 className="text-lg font-bold text-[var(--text-primary)] line-clamp-1 mb-1">
-                                {session.diagnosis?.root_cause?.replace(/_/g, ' ') || "Unknown Issue"}
-                            </h4>
-                            <p className="text-xs text-[var(--text-secondary)] font-mono">
-                                SESSION_ID: {session.session_id}
-                            </p>
-                        </div>
-                    </div>
-                    <div className="text-right text-sm text-[var(--text-secondary)]">
-                        <div className="font-semibold">{new Date(session.started_at).toLocaleDateString()}</div>
-                        <div className="font-mono text-xs">{new Date(session.started_at).toLocaleTimeString()}</div>
-                    </div>
-                </motion.div>
-            ))}
+        <div className="card overflow-hidden animate-enter">
+            <div className="overflow-x-auto">
+                <table className="table min-w-[880px]">
+                    <thead>
+                        <tr>
+                            <th>Incident</th>
+                            <th>Merchant</th>
+                            <th>Risk</th>
+                            <th>Confidence</th>
+                            <th>Status</th>
+                            <th>Session</th>
+                            <th className="text-right">Started</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {history.map((session) => (
+                            <tr key={session.session_id} className="cursor-pointer" onClick={() => onOpen(session)}>
+                                <td className="max-w-[340px]">
+                                    <div className="font-medium text-fg truncate">{humanize(session.diagnosis?.root_cause, 'Unknown issue')}</div>
+                                    <div className="t-meta truncate mt-0.5">{session.client_message || session.explanation}</div>
+                                </td>
+                                <td>
+                                    <div className="t-mono text-fg-muted whitespace-nowrap">{session.merchant_id || 'unknown'}</div>
+                                    <div className="t-meta whitespace-nowrap mt-0.5">{sourceLabel(session.source)}</div>
+                                </td>
+                                <td><RiskBadge level={session.risk} /></td>
+                                <td><ConfidenceMeter value={session.diagnosis?.confidence} className="w-28" /></td>
+                                <td><StatusBadge status={session.status} /></td>
+                                <td><span className="t-mono text-fg-subtle whitespace-nowrap">{session.session_id}</span></td>
+                                <td className="text-right whitespace-nowrap">
+                                    <div className="text-fg-muted">{session.started_at ? new Date(session.started_at).toLocaleDateString() : '—'}</div>
+                                    <div className="t-meta t-num">{session.started_at ? new Date(session.started_at).toLocaleTimeString() : ''}</div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 }
 
 // ---------------------------------------------------------------------------
-// Subcomponents
+// Activity log view (console-wide)
 // ---------------------------------------------------------------------------
-// (DockItem and MetricPill are defined above)
+const LEVEL_FILTERS = [
+    { key: 'all', label: 'All' },
+    { key: 'warning', label: 'Warnings' },
+    { key: 'error', label: 'Errors' },
+    { key: 'success', label: 'Resolved' },
+];
 
-function ScaleButton({ children, onClick, variant = 'default', fullWidth = false }) {
-    const variants = {
-        success: 'bg-[#238636] hover:bg-[#2ea043] text-white border border-[rgba(255,255,255,0.1)]',
-        danger: 'bg-[#da3633] hover:bg-[#f85149] text-white border border-[rgba(255,255,255,0.1)]',
-        default: 'glass-button'
-    };
+function ActivityView({ feed, onOpen }) {
+    const [level, setLevel] = useState('all');
+    const [query, setQuery] = useState('');
+
+    const q = query.trim().toLowerCase();
+    const entries = (feed.entries || []).filter((e) =>
+        (level === 'all' || e.level === level) &&
+        (!q || [e.merchant_id, e.session_id, e.message, e.stage, e.detail].some((v) => v && String(v).toLowerCase().includes(q)))
+    );
 
     return (
-        <motion.button
-            onClick={onClick}
-            className={`px-6 py-3 rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-md ${variants[variant]} ${fullWidth ? 'flex-1' : ''}`}
-            whileTap={{ scale: 0.97 }}
-            transition={buttonSpring}
-        >
-            {children}
-        </motion.button>
+        <div className="card overflow-hidden animate-enter">
+            <div className="card-header flex-wrap">
+                <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-canvas border border-line" role="tablist" aria-label="Filter by level">
+                    {LEVEL_FILTERS.map((f) => (
+                        <button
+                            key={f.key}
+                            role="tab"
+                            aria-selected={level === f.key}
+                            onClick={() => setLevel(f.key)}
+                            className={`h-7 px-2.5 rounded-md text-xs font-medium transition-colors ${level === f.key ? 'bg-surface-3 text-fg shadow-[inset_0_0_0_1px_var(--color-line-strong)]' : 'text-fg-muted hover:text-fg'}`}
+                        >
+                            {f.label}
+                        </button>
+                    ))}
+                </div>
+                <div className="flex items-center gap-3 flex-1 justify-end min-w-[220px]">
+                    <div className="relative w-full max-w-72">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-fg-subtle pointer-events-none" />
+                        <input
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="Filter by merchant, session or text…"
+                            className="input h-8 pl-8 text-[13px] py-0"
+                            aria-label="Filter activity"
+                        />
+                    </div>
+                    <span className="t-meta t-num whitespace-nowrap hidden sm:inline">{entries.length} of {feed.total ?? 0}</span>
+                </div>
+            </div>
+            <div className="bg-[#07090c] max-h-[calc(100vh-15rem)] min-h-[320px] overflow-y-auto">
+                <ActivityLog
+                    entries={entries}
+                    emptyText={feed.total ? 'No events match these filters.' : 'No activity yet. Submit a ticket or load demo tickets.'}
+                    renderMeta={(e) => (
+                        <button
+                            onClick={() => onOpen(e.session_id)}
+                            className="mt-1 inline-flex items-center gap-2 text-left hover:opacity-80"
+                            title="Open incident report"
+                        >
+                            <MerchantTag merchantId={e.merchant_id} source={e.source} />
+                            <span className="t-mono text-fg-subtle truncate max-w-40">{e.session_id}</span>
+                        </button>
+                    )}
+                />
+            </div>
+        </div>
     );
 }
 
-function RiskBadge({ level }) {
-    const colors = {
-        low: 'bg-[#1a7f37]/20 text-[#3fb950] border-[#3fb950]/30',
-        medium: 'bg-[#9a6700]/20 text-[#d29922] border-[#d29922]/30',
-        high: 'bg-[#d1242f]/20 text-[#f85149] border-[#f85149]/30',
-        critical: 'bg-[#d1242f]/30 text-[#ff7b72] border-[#ff7b72] animate-pulse'
-    };
-
-    return (
-        <span className={`text-xs px-2.5 py-1 rounded-md uppercase font-bold tracking-wider border ${colors[level] || colors.low}`}>
-            {level || 'Low'}
-        </span>
-    );
-}
-
-function StatusBadge({ status, large }) {
-    const config = {
-        dispatched: { color: '#3fb950', icon: CheckCircle, label: 'Dispatched' },
-        completed: { color: '#3fb950', icon: CheckCircle, label: 'Completed' },
-        awaiting_approval: { color: '#d29922', icon: Clock, label: 'Action Required' },
-        analyzing: { color: '#58a6ff', icon: Brain, label: 'Analyzing' },
-        failed: { color: '#f85149', icon: AlertTriangle, label: 'Failed' }
-    };
-
-    const type = config[status] || config.analyzing;
-    const Icon = type.icon;
-
-    return (
-        <span className={`flex items-center gap-2 font-bold rounded-full border
-            ${large ? 'px-4 py-1.5 text-sm bg-[rgba(255,255,255,0.03)]' : 'px-2 py-0.5 text-[10px] bg-transparent border-transparent'}
-        `} style={{ color: type.color, borderColor: large ? 'rgba(255,255,255,0.1)' : 'transparent' }}>
-            <Icon className={large ? "w-4 h-4" : "w-3 h-3"} />
-            {type.label}
-        </span>
-    );
-}
-
+// ---------------------------------------------------------------------------
+// Loading skeleton
+// ---------------------------------------------------------------------------
 function SkeletonGrid() {
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 w-full">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="glass-card p-8 space-y-4 h-[240px] border border-[#30363d]">
+                <div key={i} className="card p-4 h-[204px] flex flex-col">
                     <div className="flex justify-between">
-                        <div className="h-6 w-32 bg-[#21262d] rounded animate-pulse" />
-                        <div className="h-6 w-12 bg-[#21262d] rounded animate-pulse" />
+                        <div className="skeleton h-5 w-16" />
+                        <div className="skeleton h-4 w-24" />
                     </div>
-                    <div className="h-4 w-full bg-[#21262d] rounded animate-pulse" />
-                    <div className="h-4 w-3/4 bg-[#21262d] rounded animate-pulse" />
-                    <div className="flex justify-between mt-auto pt-8">
-                        <div className="h-4 w-20 bg-[#21262d] rounded animate-pulse" />
-                        <div className="h-4 w-24 bg-[#21262d] rounded animate-pulse" />
+                    <div className="skeleton h-4 w-40 mt-4" />
+                    <div className="skeleton h-3 w-full mt-3" />
+                    <div className="skeleton h-3 w-4/5 mt-2" />
+                    <div className="flex justify-between mt-auto pt-3 border-t border-line">
+                        <div className="skeleton h-5 w-24" />
+                        <div className="skeleton h-4 w-24" />
                     </div>
                 </div>
             ))}
-        </div>
-    );
-}
-
-function EmptyState({ message }) {
-    return (
-        <div className="min-h-[50vh] flex flex-col items-center justify-center text-center">
-            <motion.div
-                animate={{ y: [0, -10, 0] }}
-                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-            >
-                <Brain className="w-24 h-24 mb-6 text-[#30363d]" />
-            </motion.div>
-            <p className="text-xl text-[#8b949e] font-medium">{message}</p>
         </div>
     );
 }

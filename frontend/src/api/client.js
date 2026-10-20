@@ -196,6 +196,32 @@ export async function getSessionHistory(limit = 10) {
 }
 
 /**
+ * Get a single session (includes merchant, original message, activity log, evidence)
+ */
+export async function getSession(sessionId) {
+    const response = await fetch(`${API_BASE_URL}/agent/session/${sessionId}`);
+
+    if (!response.ok) {
+        throw new Error('Failed to get session');
+    }
+
+    return response.json();
+}
+
+/**
+ * Get the console-wide activity log (newest first)
+ */
+export async function getActivityFeed(limit = 200) {
+    const response = await fetch(`${API_BASE_URL}/agent/activity?limit=${limit}`);
+
+    if (!response.ok) {
+        throw new Error('Failed to get activity log');
+    }
+
+    return response.json();
+}
+
+/**
  * Get agent metrics
  */
 export async function getAgentMetrics() {
@@ -220,6 +246,22 @@ export async function getAnalytics() {
 
     return response.json();
 }
+
+/**
+ * Seed or reload default demo sessions
+ */
+export async function seedDemoData() {
+    const response = await fetch(`${API_BASE_URL}/agent/seed-demo`, {
+        method: 'POST',
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to seed demo data');
+    }
+
+    return response.json();
+}
+
 
 // ============ CLIENT/MERCHANT API ============
 

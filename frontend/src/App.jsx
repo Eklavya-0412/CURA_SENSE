@@ -22,7 +22,7 @@ function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[var(--bg-color)]">
+    <div className="min-h-screen bg-canvas">
       {route === 'landing' ? <LandingPage /> : <AgentDashboard />}
     </div>
   );

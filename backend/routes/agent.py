@@ -72,7 +72,7 @@ async def client_submit_problem(request: ClientSubmission):
     
     Returns a session_id that can be used to poll for the resolution.
     """
-    session_id = await support_agent.analyze_async(request.message, request.merchant_id)
+    session_id = await support_agent.analyze_async(request.message, request.merchant_id, source="api")
     return {"session_id": session_id, "status": "processing"}
 
 
@@ -399,7 +399,8 @@ async def merchant_submit(request: MerchantIssue):
     """
     session_id = await support_agent.analyze_async(
         client_message=request.message,
-        merchant_id=request.merchant_id
+        merchant_id=request.merchant_id,
+        source="merchant_portal"
     )
     
     # CRITICAL FIX: Explicitly save metadata so it appears in history
@@ -552,12 +553,10 @@ async def merchant_view(session_id: str):
 @router.get("/merchant/history/{merchant_id}")
 async def get_merchant_session_history(merchant_id: str):
     sessions = []
-    print(f"DEBUG: Fetching history for {merchant_id}") # Check your terminal logs for this!
     
     for s_id, session in support_agent._sessions.items():
         s_data = session if isinstance(session, dict) else session.model_dump()
         
-        # DEBUG: Print what we find to the console
         if s_data.get("merchant_id") == merchant_id:
             status = s_data.get("status")
             if hasattr(status, 'value'):
@@ -565,7 +564,6 @@ async def get_merchant_session_history(merchant_id: str):
             else:
                 status_val = str(status)
 
-            print(f"DEBUG: Found session {s_id} with status {status_val}")
             
             # ALLOW ALL STATUSES for now to verify data flow
             # We can filter strictly later once we see data appearing
@@ -582,15 +580,51 @@ async def get_merchant_session_history(merchant_id: str):
                 else:
                     solution = proposed_action.get("draft_content")
 
+            # Sessions store their creation time as created_at (datetime); there is no started_at key
+            created = s_data.get("created_at") or s_data.get("timestamp")
+            timestamp = created.isoformat() if hasattr(created, "isoformat") else created
+
             sessions.append({
                 "id": s_id,
                 "status": status_val,
-                "timestamp": s_data.get("started_at"),
+                "timestamp": timestamp,
+                "issue": s_data.get("client_message"),
                 "diagnosis": diagnosis,
                 "solution": solution,
                 "confidence": confidence,
-                "is_auto_detected": s_data.get("auto_generated", False)
+                "is_auto_detected": s_data.get("auto_generated", False),
+                "source": s_data.get("source")
             })
-            
-    sessions.sort(key=lambda x: str(x["timestamp"]), reverse=True)
+
+    sessions.sort(key=lambda x: str(x["timestamp"] or ""), reverse=True)
     return {"sessions": sessions}
+
+
+@router.get("/activity")
+async def get_activity_feed(limit: int = 100):
+    """
+    Console-wide activity log: every session's log entries, newest first,
+    tagged with the session and the merchant that raised it.
+    """
+    entries = []
+    for s_id, session in support_agent._sessions.items():
+        if not isinstance(session, dict):
+            continue
+        merchant_id = session.get("merchant_id") or "unknown"
+        source = session.get("source")
+        for entry in session.get("activity_log", []):
+            entries.append({**entry, "session_id": s_id, "merchant_id": merchant_id, "source": source})
+    entries.sort(key=lambda e: e.get("ts", ""), reverse=True)
+    return {"entries": entries[:max(1, min(limit, 500))], "total": len(entries)}
+
+
+@router.post("/seed-demo")
+async def seed_demo():
+    """Seed or reload default demo sessions into the agent."""
+    support_agent._seed_default_demo_data()
+    return {
+        "status": "success",
+        "total_sessions": support_agent._metrics["total_sessions"],
+        "pending_approvals": len(support_agent.get_approval_queue())
+    }
+
